@@ -1,0 +1,19 @@
+This patch is best used using Mercurial patch queues.
+
+1. Enable the mq extension by editring ~/.hgrc and adding:
+
+[extension]
+mq=
+
+2. In your Go src directory:
+
+	hg qinit
+	hg qimport /path/to/tiny.patch
+
+3. To build:
+
+	cd src/pkg
+	GOOS=tiny gomake clean install
+
+You can now go to ../cmd and follow the README there.
+	

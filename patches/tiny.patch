@@ -1,0 +1,1277 @@
+Make tiny more useful (floating point, timer interrupts, etc)
+
+Updated as of release.2010-11-23 of Go.
+
+diff --git a/src/Make.boot b/src/Make.boot
+new file mode 100644
+--- /dev/null
++++ b/src/Make.boot
+@@ -0,0 +1,20 @@
++# Copyright 2010 The Go Authors. All rights reserved.
++# Use of this source code is governed by a BSD-style
++# license that can be found in the LICENSE file.
++
++# Include this after Make.cmd to make a bootable disk.
++# Only actually useful for GOOS=tiny, of course.
++
++$(TARG).asm: _go_.8
++	8l -a _go_.8 > $(TARG).asm
++
++disk: $(TARG) $(TARG).asm
++	dd if=/dev/zero of=disk count=10000
++	cat $(GOROOT)/src/pkg/runtime/$(GOOS)/bootblock $(TARG) | \
++		dd of=disk conv=notrunc
++
++run: disk
++	bochs
++
++# do nothing on install
++install:
+diff --git a/src/Make.inc b/src/Make.inc
+--- a/src/Make.inc
++++ b/src/Make.inc
+@@ -65,13 +65,11 @@
+ else ifeq ($(GOARCH),amd64)
+ O:=6
+ else ifeq ($(GOARCH),arm)
+-
+ O:=5
+-ifeq ($(GOOS),linux)
++ifeq ($(GOOS),$(filter $(GOOS),linux tiny))
+ else
+-$(error Invalid $$GOOS '$(GOOS)' for GOARCH=arm; must be linux)
++$(error Invalid $$GOOS '$(GOOS)' for GOARCH=arm; must be linux or tiny)
+ endif
+-
+ else
+ $(error Invalid $$GOARCH '$(GOARCH)'; must be 386, amd64, or arm)
+ endif
+diff --git a/src/pkg/Makefile b/src/pkg/Makefile
+--- a/src/pkg/Makefile
++++ b/src/pkg/Makefile
+@@ -140,6 +140,53 @@
+ 	../cmd/goyacc\
+ 	../cmd/hgpatch\
+ 
++NODIRS_tiny=\
++	archive/zip\
++	crypto/tls\
++	debug/macho\
++	debug/elf\
++	debug/proc\
++	debug/pe \
++	exec\
++	exp/draw/x11\
++	exp/eval\
++	expvar\
++	flag\
++	go/doc\
++	go/parser\
++	go/printer\
++	http\
++	http/pprof\
++	io/ioutil\
++	mime\
++	mime/multipart\
++	net\
++	net/dict\
++	net/textproto\
++	netchan\
++	patch\
++	path\
++	rpc\
++	rpc/jsonrpc\
++	smtp\
++	syslog\
++	testing\
++	testing/quick\
++	tabwriter\
++	template\
++	websocket\
++	../libcgo\
++	../cmd/cgo\
++	../cmd/ebnflint\
++	../cmd/godoc\
++	../cmd/gofmt\
++	../cmd/goinstall\
++	../cmd/goyacc\
++	../cmd/hgpatch\
++
++FILTDIRS=\
++	$(filter-out $(NODIRS_$(GOOS)),$(DIRS))
++
+ NOTEST=\
+ 	debug/proc\
+ 	exp/draw/x11\
+@@ -204,14 +251,14 @@
+ endif
+ 
+ TEST=\
+-	$(filter-out $(NOTEST),$(DIRS))
++	$(filter-out $(NOTEST),$(FILTDIRS))
+ 
+ BENCH=\
+ 	$(filter-out $(NOBENCH),$(TEST))
+ 
+-clean.dirs: $(addsuffix .clean, $(DIRS))
+-install.dirs: $(addsuffix .install, $(DIRS))
+-nuke.dirs: $(addsuffix .nuke, $(DIRS))
++clean.dirs: $(addsuffix .clean, $(FILTDIRS))
++install.dirs: $(addsuffix .install, $(FILTDIRS))
++nuke.dirs: $(addsuffix .nuke, $(FILTDIRS))
+ test.dirs: $(addsuffix .test, $(TEST))
+ bench.dirs: $(addsuffix .bench, $(BENCH))
+ 
+@@ -241,6 +288,10 @@
+ nuke: nuke.dirs
+ 	rm -rf "$(GOROOT)"/pkg/*
+ 
++# used by deps.bash
++dumpdirs:
++	@echo $(FILTDIRS) 
++
+ deps:
+ 	./deps.bash
+ 
+diff --git a/src/pkg/deps.bash b/src/pkg/deps.bash
+--- a/src/pkg/deps.bash
++++ b/src/pkg/deps.bash
+@@ -14,7 +14,7 @@
+ fi
+ 
+ # Get list of directories from Makefile
+-dirs=$(sed '1,/^DIRS=/d; /^$/,$d; s/\\//g' Makefile)
++dirs=$(gomake --no-print-directory dumpdirs)
+ dirpat=$(echo $dirs C | sed 's/ /|/g; s/.*/^(&)$/')
+ 
+ for dir in $dirs; do (
+diff --git a/src/pkg/os/Makefile b/src/pkg/os/Makefile
+--- a/src/pkg/os/Makefile
++++ b/src/pkg/os/Makefile
+@@ -43,6 +43,16 @@
+ 	file_windows.go\
+ 	sys_windows.go\
+ 
+-GOFILES+=$(GOFILES_$(GOOS))
++GOFILES_tiny=\
++	time_tiny.go\
++	error_tiny.go\
++	proc_tiny.go\
++	file_tiny.go\
++
++ifeq ($(GOOS),tiny)
++  GOFILES=$(GOFILES_tiny)
++else
++  GOFILES+=$(GOFILES_$(GOOS))
++endif
+ 
+ include ../../Make.pkg
+diff --git a/src/pkg/os/dir_tiny.go b/src/pkg/os/dir_tiny.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/os/dir_tiny.go
+@@ -0,0 +1,9 @@
++// Copyright 2009 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package os
++
++func (file *File) Readdirnames(count int) (names []string, err Error) {
++	return nil, nil
++}
+diff --git a/src/pkg/os/error_tiny.go b/src/pkg/os/error_tiny.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/os/error_tiny.go
+@@ -0,0 +1,80 @@
++// Copyright 2009 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package os
++
++import syscall "syscall"
++
++// An Error can represent any printable error condition.
++type Error interface {
++	String() string
++}
++
++// A helper type that can be embedded or wrapped to simplify satisfying
++// Error.
++type ErrorString string
++
++func (e ErrorString) String() string  { return string(e) }
++func (e ErrorString) Temporary() bool { return false }
++func (e ErrorString) Timeout() bool   { return false }
++
++// Note: If the name of the function NewError changes,
++// pkg/go/doc/doc.go should be adjusted since it hardwires
++// this name in a heuristic.
++
++// NewError converts s to an ErrorString, which satisfies the Error interface.
++func NewError(s string) Error { return ErrorString(s) }
++
++// Errno is the Unix error number.  Names such as EINVAL are simple
++// wrappers to convert the error number into an Error.
++type Errno int64
++
++func (e Errno) String() string { return syscall.Errstr(int(e)) }
++
++func (e Errno) Temporary() bool {
++	return false
++}
++
++func (e Errno) Timeout() bool {
++	return false
++}
++
++// these are needed by io and strconv
++
++var (
++	EINVAL Error = Errno(0x16)
++	EPIPE  Error = Errno(0x20)
++	ERANGE Error = Errno(0x22)
++)
++
++// PathError records an error and the operation and file path that caused it.
++type PathError struct {
++	Op    string
++	Path  string
++	Error Error
++}
++
++func (e *PathError) String() string { return e.Op + " " + e.Path + ": " + e.Error.String() }
++
++// SyscallError records an error from a specific system call.
++type SyscallError struct {
++	Syscall string
++	Errno   Errno
++}
++
++func (e *SyscallError) String() string { return e.Syscall + ": " + e.Errno.String() }
++
++// Note: If the name of the function NewSyscallError changes,
++// pkg/go/doc/doc.go should be adjusted since it hardwires
++// this name in a heuristic.
++
++// NewSyscallError returns, as an Error, a new SyscallError
++// with the given system call name and error number.
++// As a convenience, if errno is 0, NewSyscallError returns nil.
++func NewSyscallError(syscall string, errno int) Error {
++	if errno == 0 {
++		return nil
++	}
++	return &SyscallError{syscall, Errno(errno)}
++}
+diff --git a/src/pkg/os/file_tiny.go b/src/pkg/os/file_tiny.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/os/file_tiny.go
+@@ -0,0 +1,51 @@
++// Copyright 2009 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package os
++
++// These are needed for io/*.go:
++
++type eofError int
++
++func (eofError) String() string { return "EOF" }
++
++// EOF is the Error returned by Read when no more input is available.
++// Functions should return EOF only to signal a graceful end of input.
++// If the EOF occurs unexpectedly in a structured data stream,
++// the appropriate error is either io.ErrUnexpectedEOF or some other error
++// giving more detail.
++var EOF Error = eofError(0)
++
++// Needed for fmt:
++
++// File represents an open file descriptor.
++type File struct {
++	fd      int
++	name    string
++	dirinfo *dirInfo
++	nepipe  int
++}
++
++type dirInfo struct {
++	buf  []byte // buffer for directory I/O
++	nbuf int    // length of buf; return value from Getdirentries
++	bufp int    // location of next record in buf.
++}
++
++var (
++	Stdin  = &File{0, "stdin", nil, 0}
++	Stdout = &File{1, "stdout", nil, 0}
++	Stderr = &File{2, "stderr", nil, 0}
++)
++
++// implement io.Writer
++func (f *File) Write(p []byte) (n int, err Error) {
++	print(p)
++	return len(p), nil
++}
++
++// implement io.Reader
++func (f *File) Read(p []byte) (n int, err Error) {
++	return 0, nil
++}
+diff --git a/src/pkg/os/proc_tiny.go b/src/pkg/os/proc_tiny.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/os/proc_tiny.go
+@@ -0,0 +1,7 @@
++// Copyright 2010 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package os
++
++func Exit(code int) { print("exit code ", code); panic("exit") }
+diff --git a/src/pkg/os/stat_tiny.go b/src/pkg/os/stat_tiny.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/os/stat_tiny.go
+@@ -0,0 +1,11 @@
++// Copyright 2009 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package os
++
++import "syscall"
++
++func fileInfoFromStat(name string, fi *FileInfo, lstat, stat *syscall.Stat_t) *FileInfo {
++	return nil
++}
+diff --git a/src/pkg/os/time_tiny.go b/src/pkg/os/time_tiny.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/os/time_tiny.go
+@@ -0,0 +1,17 @@
++// Copyright 2010 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package os
++
++import "syscall"
++
++func Time() (sec int64, nsec int64, err Error) {
++	var tv syscall.Timeval
++
++	// same as the frozen time on the playground
++	tv.Sec = 1257894000
++	tv.Usec = 0
++
++	return int64(tv.Sec), int64(tv.Usec) * 1000, nil
++}
+diff --git a/src/pkg/runtime/Makefile b/src/pkg/runtime/Makefile
+--- a/src/pkg/runtime/Makefile
++++ b/src/pkg/runtime/Makefile
+@@ -30,6 +30,9 @@
+ GOFILES_tiny=\
+ 	tiny/io.go\
+ 
++#OFILES_tiny=\
++#	vectors.$O\
++
+ OFILES_windows=\
+ 	syscall.$O\
+ 
+@@ -164,3 +167,9 @@
+ closure.$O: nacl/$(GOARCH)/closure.c
+ 	$(CC) $(CFLAGS) $<
+ endif
++
++#ifeq ($(GOOS),tiny)
++#vectors.s: tiny/vectors.pl
++#	tiny/vectors.pl > vectors.s
++#endif
++
+diff --git a/src/pkg/runtime/tiny/386/intrcommon.h b/src/pkg/runtime/tiny/386/intrcommon.h
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/runtime/tiny/386/intrcommon.h
+@@ -0,0 +1,24 @@
++// this file gets #included over and over to workaround
++// a problem in 8l when it processes JMPs between routines
++
++  PUSHL DS
++  PUSHL ES
++  PUSHL FS
++  PUSHL GS
++  PUSHAL
++  //MOVL  $(KDSEL),AX   - would have expanded to next line
++	MOVL $((1<<3) | (0<<3) | 0), AX
++  MOVW  AX,DS
++  MOVW  AX,ES
++  LEAL  0(SP),AX
++  PUSHL AX
++  CALL  runtime·trap(SB)
++  POPL  AX
++  POPAL
++  POPL  GS
++  POPL  FS
++  POPL  ES
++  POPL  DS
++  ADDL  $8,SP /* error code and trap type */
++  IRETL
++
+diff --git a/src/pkg/runtime/tiny/386/rt0.s b/src/pkg/runtime/tiny/386/rt0.s
+--- a/src/pkg/runtime/tiny/386/rt0.s
++++ b/src/pkg/runtime/tiny/386/rt0.s
+@@ -5,7 +5,19 @@
+ TEXT _rt0_386_tiny(SB), 7, $0
+ 	// Disable interrupts.
+ 	CLI
+-	
++
++	// setup floating point
++	// from 8a/l.s, the rt0 for Plan9
++	MOVL  CR0,AX
++	ANDL  $~0x4,AX  /* EM=0 */
++	MOVL  AX,CR0
++	FINIT
++	WAIT
++	PUSHW $0x0330	/* ignore underflow/precision, signal others */
++	FLDCW 0(SP)
++	POPW  AX
++	WAIT
++
+ 	// Establish stack.
+ 	MOVL	$0x10000, AX
+ 	MOVL	AX, SP
+diff --git a/src/pkg/runtime/tiny/386/signal.c b/src/pkg/runtime/tiny/386/signal.c
+--- a/src/pkg/runtime/tiny/386/signal.c
++++ b/src/pkg/runtime/tiny/386/signal.c
+@@ -3,17 +3,119 @@
+ // license that can be found in the LICENSE file. 
+ 
+ #include "runtime.h"
++#include "tiny/ureg.h"
++#include "tiny/signals.h"
+ 
+-extern void runtime·write(int32 fd, void *v, int32 len, int32 cap);	// slice, spelled out
+-
+-int32
+-runtime·write(int32 fd, void *v, int32 len)
+-{
+-	runtime·write(fd, v, len, len);
+-	return len;
+-}
++extern int32 runtime·write(int32 fd, void *v, int32 len);
+ 
+ void
+ runtime·gettime(int64*, int32*) 
+ {
+ }
++
++String
++runtime·signame(int32)
++{
++  return runtime·emptystring;
++}
++
++typedef struct Segdesc {
++  uint32 d0;
++  uint32 d1;
++} Segdesc;
++
++Segdesc ilt[256];
++
++#define SELGDT	(0<<3)	/* selector is in gdt */
++#define SEGP	(1<<15)		/* segment present */
++#define SEGPL(x) ((x)<<13)	/* priority level */
++
++#define	KESEG	2	/* kernel executable */	
++#define SEGTG	(0x0F<<8)	/* task gate */
++#define SELECTOR(i, t, p)	(((i)<<3) | (t) | (p))
++#define KESEL	SELECTOR(KESEG, SELGDT, 0)
++
++void
++runtime·sethvec(uint32 v, void (*r)(void), uint32 type, uint32 pri)
++{
++  ilt[v].d0 = ((uint32)r)&0xFFFF|(KESEL<<16);
++  ilt[v].d1 = ((uint32)r)&0xFFFF0000|SEGP|SEGPL(pri)|type;
++}
++
++void runtime·putidt(Segdesc *p, uint16 len);
++
++void
++runtime·trapinit(void)
++{
++  int32 i;
++
++  /* set all to bad, then fix the ones we want */
++  for(i = 0; i < 256; i++)
++    runtime·sethvec(i, intrbad, SEGTG, 0);
++
++//	sethvec(0, intr0, SEGTG, 0);
++//	sethvec(1, intr1, SEGTG, 0);
++//	sethvec(2, intr2, SEGTG, 0);
++//	sethvec(3, intr3, SEGTG, 0);
++//	sethvec(4, intr4, SEGTG, 0);
++//	sethvec(5, intr5, SEGTG, 0);
++	runtime·sethvec(6, intr6, SEGTG, 0);
++//	sethvec(7, intr7, SEGTG, 0);
++//	sethvec(8, intr8, SEGTG, 0);
++//	sethvec(9, intr9, SEGTG, 0);
++//	sethvec(10, intr10, SEGTG, 0);
++//	sethvec(11, intr11, SEGTG, 0);
++//	sethvec(12, intr12, SEGTG, 0);
++//	sethvec(13, intr13, SEGTG, 0);
++//	sethvec(14, intr14, SEGTG, 0);
++//	sethvec(15, intr15, SEGTG, 0);
++//	sethvec(16, intr16, SEGTG, 0);
++//	sethvec(24, intr24, SEGTG, 0);
++//	sethvec(25, intr25, SEGTG, 0);
++//	sethvec(26, intr26, SEGTG, 0);
++//	sethvec(27, intr27, SEGTG, 0);
++//	sethvec(28, intr28, SEGTG, 0);
++//	sethvec(29, intr29, SEGTG, 0);
++//	sethvec(30, intr30, SEGTG, 0);
++//	sethvec(31, intr31, SEGTG, 0);
++//	sethvec(32, intr32, SEGTG, 0);
++//	sethvec(33, intr33, SEGTG, 0);
++//	sethvec(34, intr34, SEGTG, 0);
++//	sethvec(35, intr35, SEGTG, 0);
++//	sethvec(36, intr36, SEGTG, 0);
++//	sethvec(37, intr37, SEGTG, 0);
++//	sethvec(38, intr38, SEGTG, 0);
++//	sethvec(39, intr39, SEGTG, 0);
++//	sethvec(64, intr64, SEGTG, 0);
++
++  runtime·putidt(ilt, sizeof(ilt)-1);
++}
++
++void
++runtime·dumpregs(Ureg *r)
++{
++  runtime·printf("eax     %x\t", r->ax);
++  runtime·printf("ebx     %x\n", r->bx);
++  runtime·printf("ecx     %x\t", r->cx);
++  runtime·printf("edx     %x\n", r->dx);
++  runtime·printf("edi     %x\t", r->di);
++  runtime·printf("esi     %x\n", r->si);
++  runtime·printf("ebp     %x\t", r->bp);
++  runtime·printf("esp     %x\n", r->nsp);
++  runtime·printf("eip     %x\t", r->pc);
++  runtime·printf("eflags  %x\n", r->flags);
++  runtime·printf("cs      %x\t", r->cs);
++  runtime·printf("fs      %x\n", r->fs);
++  runtime·printf("gs      %x\n", r->gs);
++}
++
++void runtime·arch_exit();
++
++void
++runtime·trap(Ureg *ur)
++{
++  runtime·printf("Trap %x:\n", ur->trap);
++	runtime·dumpregs(ur);
++
++  runtime·arch_exit();
++}
+diff --git a/src/pkg/runtime/tiny/386/sys.s b/src/pkg/runtime/tiny/386/sys.s
+--- a/src/pkg/runtime/tiny/386/sys.s
++++ b/src/pkg/runtime/tiny/386/sys.s
+@@ -66,7 +66,7 @@
+ 	MOVL	limit+8(FP), CX
+ 
+ 	// set up segment descriptor
+-	LEAL	gdt+(3*8)(SB), AX	// gdt entry #3
++	LEAL	runtime·gdt+(3*8)(SB), AX	// gdt entry #3
+ 	MOVL	$0, 0(AX)
+ 	MOVL	$0, 4(AX)
+ 
+@@ -90,3 +90,154 @@
+ 	MOVW	AX, GS
+ 	RET
+ 
++TEXT runtime·arch_exit(SB),7,$0
++	CLI
++	HLT
++
++GLOBL idtptr(SB),$6
++TEXT  runtime·putidt(SB),7,$0   /* interrupt descriptor table */
++  MOVL  t+0(FP),AX
++  MOVL  AX,idtptr+2(SB)
++  MOVL  l+4(FP),AX
++  MOVW  AX,idtptr(SB)
++  MOVL  idtptr(SB),IDTR
++  RET
++
++/* from plan9's l.s */
++TEXT	intr0(SB),7,$0
++	PUSHL	$0
++	PUSHL	$0
++#include "intrcommon.h"
++TEXT	intr1(SB),7,$0
++	PUSHL	$0
++	PUSHL	$1
++#include "intrcommon.h"
++TEXT	intr2(SB),7,$0
++	PUSHL	$0
++	PUSHL	$2
++#include "intrcommon.h"
++TEXT	intr3(SB),7,$0
++	PUSHL	$0
++	PUSHL	$3
++#include "intrcommon.h"
++TEXT	intr4(SB),7,$0
++	PUSHL	$0
++	PUSHL	$4
++#include "intrcommon.h"
++TEXT	intr5(SB),7,$0
++	PUSHL	$0
++	PUSHL	$5
++#include "intrcommon.h"
++TEXT	intr6(SB),7,$0
++	PUSHL	$0
++	PUSHL	$6
++#include "intrcommon.h"
++
++TEXT	intr7(SB),7,$0
++	PUSHL	$0
++	PUSHL	$7
++#include "intrcommon.h"
++TEXT	intr8(SB),7,$0
++	PUSHL	$8
++#include "intrcommon.h"
++TEXT	intr9(SB),$0
++	PUSHL	$0
++	PUSHL	$9
++#include "intrcommon.h"
++TEXT	intr10(SB),7,$0
++	PUSHL	$10
++#include "intrcommon.h"
++TEXT	intr11(SB),7,$0
++	PUSHL	$11
++#include "intrcommon.h"
++TEXT	intr12(SB),7,$0
++	PUSHL	$12
++#include "intrcommon.h"
++TEXT	intr13(SB),7,$0
++	PUSHL	$13
++#include "intrcommon.h"
++TEXT	intr14(SB),7,$0
++	PUSHL	$14
++#include "intrcommon.h"
++TEXT	intr15(SB),7,$0
++	PUSHL	$0
++	PUSHL	$15
++#include "intrcommon.h"
++TEXT	intr16(SB),7,$0
++	PUSHL	$0
++	PUSHL	$16
++#include "intrcommon.h"
++TEXT	intr24(SB),7,$0
++	PUSHL	$0
++	PUSHL	$24
++#include "intrcommon.h"
++TEXT	intr25(SB),7,$0
++	PUSHL	$0
++	PUSHL	$25
++#include "intrcommon.h"
++TEXT	intr26(SB),7,$0
++	PUSHL	$0
++	PUSHL	$26
++#include "intrcommon.h"
++TEXT	intr27(SB),7,$0
++	PUSHL	$0
++	PUSHL	$27
++#include "intrcommon.h"
++TEXT	intr28(SB),7,$0
++	PUSHL	$0
++	PUSHL	$28
++#include "intrcommon.h"
++TEXT	intr29(SB),7,$0
++	PUSHL	$0
++	PUSHL	$29
++#include "intrcommon.h"
++TEXT	intr30(SB),7,$0
++	PUSHL	$0
++	PUSHL	$30
++#include "intrcommon.h"
++TEXT	intr31(SB),7,$0
++	PUSHL	$0
++	PUSHL	$31
++#include "intrcommon.h"
++TEXT	intr32(SB),7,$0
++	PUSHL	$0
++	PUSHL	$16
++#include "intrcommon.h"
++TEXT	intr33(SB),7,$0
++	PUSHL	$0
++	PUSHL	$33
++#include "intrcommon.h"
++TEXT	intr34(SB),7,$0
++	PUSHL	$0
++	PUSHL	$34
++#include "intrcommon.h"
++TEXT	intr35(SB),7,$0
++	PUSHL	$0
++	PUSHL	$35
++#include "intrcommon.h"
++TEXT	intr36(SB),7,$0
++	PUSHL	$0
++	PUSHL	$36
++#include "intrcommon.h"
++TEXT	intr37(SB),7,$0
++	PUSHL	$0
++	PUSHL	$37
++#include "intrcommon.h"
++TEXT	intr38(SB),7,$0
++	PUSHL	$0
++	PUSHL	$38
++#include "intrcommon.h"
++TEXT	intr39(SB),7,$0
++	PUSHL	$0
++	PUSHL	$39
++#include "intrcommon.h"
++TEXT	intr64(SB),7,$0
++	PUSHL	$0
++	PUSHL	$64
++#include "intrcommon.h"
++
++TEXT  intrbad(SB),7,$0
++  PUSHL $0
++  PUSHL $0x1ff
++#include "intrcommon.h"
++
+diff --git a/src/pkg/runtime/tiny/README b/src/pkg/runtime/tiny/README
+--- a/src/pkg/runtime/tiny/README
++++ b/src/pkg/runtime/tiny/README
+@@ -12,10 +12,9 @@
+ and GOOS set to your normal GOOS (linux, darwin).  Then:
+ 
+ 	export GOOS=tiny
+-	cd $GOROOT/src/pkg/runtime
+-	make clean
+-	make install
+-	cd tiny
++	cd $GOROOT/src/pkg
++	make clean install
++	cd $GOROOT/src/pkg/runtime/tiny
+ 	8g $GOROOT/test/sieve.go
+ 	8l sieve.8
+ 	8l -a sieve.8 >sieve.asm	# can consult sieve.asm for debugging
+@@ -63,14 +62,13 @@
+ you build your embedded code set GOARCH=tiny.
+ 
+ 	export GOOS=tiny
+-	cd $GOROOT/src/pkg/runtime
+-	make clean
+-	make install
++	cd $GOROOT/src/pkg
++	make clean install
+ 
+-On arm the tiny runtime doesn't define a low level write function. You can either
+-define a stub if you don't need debug output, or more usefully, define it to
+-print to some debug serial port. Here is a sample function that prints to
+-the DBGU on an at91sam7s:
++On arm the tiny runtime doesn't define a low level write function.
++You can either define a stub if you don't need debug output, or
++more usefully, define it to print to some debug serial port. Here
++is a sample function that prints to the DBGU on an at91sam7s:
+ 
+ #define DBGU_CSR  ((uint32*)   0xFFFFF214) // (DBGU) Channel Status Register
+ #define US_TXRDY        ((uint32) 0x1 <<  1) // (DBGU) TXRDY Interrupt
+diff --git a/src/pkg/runtime/tiny/arm/rt0.s b/src/pkg/runtime/tiny/arm/rt0.s
+--- a/src/pkg/runtime/tiny/arm/rt0.s
++++ b/src/pkg/runtime/tiny/arm/rt0.s
+@@ -1,1 +1,22 @@
+-// nothing to see here
++// Copyright 2010 The Go Authors.  All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// outline copied from ../386/rt0.s, need an arm expert to fill
++// in the details.
++
++TEXT _rt0_arm_tiny(SB), 7, $0
++  // Disable interrupts.
++
++  // Establish stack.
++
++  // Set up memory hardware.
++
++  // _rt0_386 expects to find argc, argv, envv on stack.
++  // Set up argv=["kernel"] and envv=[].
++  //JMP _rt0_arm(SB)
++	RET
++
++TEXT arch_exit(SB),0,$0
++  SWI 0x11
++	RET
+diff --git a/src/pkg/runtime/tiny/arm/signal.c b/src/pkg/runtime/tiny/arm/signal.c
+--- a/src/pkg/runtime/tiny/arm/signal.c
++++ b/src/pkg/runtime/tiny/arm/signal.c
+@@ -1,1 +1,19 @@
+-// nothing to see here
++// Copyright 2010 The Go Authors.  All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file. 
++
++#include "runtime.h"
++
++extern void runtime·write(int32 fd, void *v, int32 len);
++
++int32
++runtime·write(int32 fd, void *v, int32 len)
++{
++	runtime·write(fd, v, len);
++	return len;
++}
++
++void
++runtime·gettime(int64*, int32*) 
++{
++}
+diff --git a/src/pkg/runtime/tiny/io.go b/src/pkg/runtime/tiny/io.go
+--- a/src/pkg/runtime/tiny/io.go
++++ b/src/pkg/runtime/tiny/io.go
+@@ -31,6 +31,10 @@
+ 	switch c {
+ 	case '\n':
+ 		pos += 80 - pos%80
++	case '\t':
++		for i := 0; i < 8; i++ {
++			putc(32)	// space
++		}
+ 	default:
+ 		crt[pos] = uint16(c&0xff | color)
+ 		pos++
+diff --git a/src/pkg/runtime/tiny/signals.h b/src/pkg/runtime/tiny/signals.h
+--- a/src/pkg/runtime/tiny/signals.h
++++ b/src/pkg/runtime/tiny/signals.h
+@@ -1,1 +1,37 @@
+-// nothing to see here
++/* prototypes for the interrupt handlers */
++
++void intr0(void);
++void intr1(void);
++void intr2(void);
++void intr3(void);
++void intr4(void);
++void intr5(void);
++void intr6(void);
++void intr7(void);
++void intr8(void);
++void intr9(void);
++void intr10(void);
++void intr11(void);
++void intr12(void);
++void intr13(void);
++void intr14(void);
++void intr15(void);
++void intr16(void);
++void intr24(void);
++void intr25(void);
++void intr26(void);
++void intr27(void);
++void intr28(void);
++void intr29(void);
++void intr30(void);
++void intr31(void);
++void intr32(void);
++void intr33(void);
++void intr34(void);
++void intr35(void);
++void intr36(void);
++void intr37(void);
++void intr38(void);
++void intr39(void);
++void intr64(void);
++void intrbad(void);
+diff --git a/src/pkg/runtime/tiny/thread.c b/src/pkg/runtime/tiny/thread.c
+--- a/src/pkg/runtime/tiny/thread.c
++++ b/src/pkg/runtime/tiny/thread.c
+@@ -17,14 +17,14 @@
+ }
+ 
+ void
+-runtime·initsig(int32 queue)
++runtime·initsig(int32)
+ {
+ }
+ 
+ void
+-runtime·exit(int32)
++runtime·exit(int32 code)
+ {
+-	for(;;);
++	runtime·arch_exit(code);
+ }
+ 
+ // single processor, no interrupts,
+diff --git a/src/pkg/runtime/tiny/ureg.h b/src/pkg/runtime/tiny/ureg.h
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/runtime/tiny/ureg.h
+@@ -0,0 +1,29 @@
++typedef struct Ureg	Ureg;
++
++#define ulong uint32
++
++struct Ureg
++{
++	ulong	di;		/* general registers */
++	ulong	si;		/* ... */
++	ulong	bp;		/* ... */
++	ulong	nsp;
++	ulong	bx;		/* ... */
++	ulong	dx;		/* ... */
++	ulong	cx;		/* ... */
++	ulong	ax;		/* ... */
++	ulong	gs;		/* data segments */
++	ulong	fs;		/* ... */
++	ulong	es;		/* ... */
++	ulong	ds;		/* ... */
++	ulong	trap;		/* trap type */
++	ulong	ecode;		/* error code (or zero) */
++	ulong	pc;		/* pc */
++	ulong	cs;		/* old context */
++	ulong	flags;		/* old flags */
++	union {
++		ulong	usp;
++		ulong	sp;
++	};
++	ulong	ss;		/* old stack segment */
++};
+diff --git a/src/pkg/syscall/asm_tiny_386.s b/src/pkg/syscall/asm_tiny_386.s
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/syscall/asm_tiny_386.s
+@@ -0,0 +1,31 @@
++// Copyright 2009 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// func Outw(port, val uint16)
++TEXT	·Outw(SB),7,$0
++	MOVL	4(SP), DX	// port
++	MOVL	8(SP), AX // word
++	OUTW
++	RET
++
++// func Inw(port uint16) uint16
++TEXT	·Inw(SB),7,$0
++	MOVL	4(SP), DX
++	INW
++	MOVL	AX, 8(SP)
++
++// func Outb(port uint16, val uint8)
++TEXT	·Outb(SB),7,$0
++	MOVL	4(SP), DX
++	MOVL	8(SP), AX
++	OUTB
++	RET
++
++// func Inb(port uint16) uint8
++TEXT	·Inb(SB),7,$0
++	MOVL	4(SP), DX
++	INB
++	MOVL	AX, 8(SP)
++	RET
++
+diff --git a/src/pkg/syscall/mksysnum_tiny.sh b/src/pkg/syscall/mksysnum_tiny.sh
+new file mode 100755
+--- /dev/null
++++ b/src/pkg/syscall/mksysnum_tiny.sh
+@@ -0,0 +1,17 @@
++#!/usr/bin/perl
++# Copyright 2010 The Go Authors. All rights reserved.
++# Use of this source code is governed by a BSD-style
++# license that can be found in the LICENSE file.
++
++my $command = "mksysnum_tiny.sh ". join(' ', @ARGV);
++
++# Nothing here right now, but let's follow the pattern of the others.
++
++print <<EOF;
++// $command
++// MACHINE GENERATED BY THE ABOVE COMMAND; DO NOT EDIT
++
++package syscall
++
++const( )
++EOF
+diff --git a/src/pkg/syscall/syscall_tiny.go b/src/pkg/syscall/syscall_tiny.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/syscall/syscall_tiny.go
+@@ -0,0 +1,57 @@
++// Copyright 2010 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Tiny system calls (i.e. none)
++
++// This file is compiled as ordinary Go code,
++// but it is also input to mksyscall,
++// which parses the //sys lines and generates system call stubs.
++// Note that sometimes we use a lowercase //sys name and
++// wrap it in our own nicer implementation.
++
++package syscall
++
++const OS = "tiny"
++
++// prototypes for things in assembly
++func Outw(port, val uint16)
++func Inw(port uint16) uint16
++func Outb(port uint16, val uint8)
++func Inb(port uint16) uint8
++
++const ImplementsGetwd = false
++
++func Sleep(nsec int64) (errno int) {
++	//tv := NsecToTimeval(nsec)
++	//_, err := Select(0, nil, nil, nil, &tv)
++	//return err
++	return 0
++}
++
++type WaitStatus uint32
++
++// Wait status is 7 bits at bottom, either 0 (exited),
++// 0x7F (stopped), or a signal number that caused an exit.
++// The 0x80 bit is whether there was a core dump.
++// An extra number (exit code, signal causing a stop)
++// is in the high bits.  At least that's the idea.
++// There are various irregularities.  For example, the
++// "continued" status is 0xFFFF, distinguishing itself
++// from stopped via the core dump bit.
++
++const (
++	mask    = 0x7F
++	core    = 0x80
++	exited  = 0x00
++	stopped = 0x7F
++	shift   = 8
++)
++
++// needed by os/error.go
++func Errstr(errno int) string {
++	if errno < 0 || errno >= int(len(errors)) {
++		return "error " + str(errno)
++	}
++	return errors[errno]
++}
+diff --git a/src/pkg/syscall/syscall_tiny_386.go b/src/pkg/syscall/syscall_tiny_386.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/syscall/syscall_tiny_386.go
+@@ -0,0 +1,28 @@
++// Copyright 2010 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package syscall
++
++func Getpagesize() int { return 4096 }
++
++func TimespecToNsec(ts Timespec) int64 { return int64(ts.Sec)*1e9 + int64(ts.Nsec) }
++
++func NsecToTimespec(nsec int64) (ts Timespec) {
++	ts.Sec = int32(nsec / 1e9)
++	ts.Nsec = int32(nsec % 1e9)
++	return
++}
++
++func TimevalToNsec(tv Timeval) int64 { return int64(tv.Sec)*1e9 + int64(tv.Usec)*1e3 }
++
++func NsecToTimeval(nsec int64) (tv Timeval) {
++	nsec += 999 // round up to microsecond
++	tv.Sec = int32(nsec / 1e9)
++	tv.Usec = int32(nsec % 1e9 / 1e3)
++	return
++}
++
++func (r *PtraceRegs) PC() uint64 { return uint64(uint32(r.Eip)) }
++
++func (r *PtraceRegs) SetPC(pc uint64) { r.Eip = int32(pc) }
+diff --git a/src/pkg/syscall/types_tiny.c b/src/pkg/syscall/types_tiny.c
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/syscall/types_tiny.c
+@@ -0,0 +1,18 @@
++// Copyright 2010 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++#include <sys/types.h>
++typedef struct timespec $Timespec;
++typedef struct timeval $Timeval;
++
++#include <sys/user.h>
++typedef struct user_regs_struct $PtraceRegs;
++
++// for os/stat_tiny.go (required by os/file.go)
++#include <sys/stat.h>
++typedef struct stat $Stat_t;
++
++// for os/exec.go
++#include <sys/resource.h>
++typedef struct rusage $Rusage;
+diff --git a/src/pkg/syscall/zerrors_tiny_386.go b/src/pkg/syscall/zerrors_tiny_386.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/syscall/zerrors_tiny_386.go
+@@ -0,0 +1,10 @@
++package syscall
++
++const (
++	// for time/sleep.go
++	EINTR = 0x4
++)
++
++var errors = [...]string{
++	4: "interrupted system call",
++}
+diff --git a/src/pkg/syscall/zsyscall_tiny_386.go b/src/pkg/syscall/zsyscall_tiny_386.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/syscall/zsyscall_tiny_386.go
+@@ -0,0 +1,4 @@
++// mksyscall.sh syscall_tiny.go syscall_tiny_386.go
++// MACHINE GENERATED BY THE COMMAND ABOVE; DO NOT EDIT
++
++package syscall
+diff --git a/src/pkg/syscall/zsysnum_tiny_386.go b/src/pkg/syscall/zsysnum_tiny_386.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/syscall/zsysnum_tiny_386.go
+@@ -0,0 +1,6 @@
++// mksysnum_tiny.sh 
++// MACHINE GENERATED BY THE ABOVE COMMAND; DO NOT EDIT
++
++package syscall
++
++const ()
+diff --git a/src/pkg/syscall/ztypes_tiny_386.go b/src/pkg/syscall/ztypes_tiny_386.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/syscall/ztypes_tiny_386.go
+@@ -0,0 +1,80 @@
++// godefs -gsyscall types_tiny.c
++
++// MACHINE GENERATED - DO NOT EDIT.
++
++package syscall
++
++// Constants
++
++// Types
++
++type Timespec struct {
++	Sec  int32
++	Nsec int32
++}
++
++type Timeval struct {
++	Sec  int32
++	Usec int32
++}
++
++type PtraceRegs struct {
++	Ebx      int32
++	Ecx      int32
++	Edx      int32
++	Esi      int32
++	Edi      int32
++	Ebp      int32
++	Eax      int32
++	Xds      int32
++	Xes      int32
++	Xfs      int32
++	Xgs      int32
++	Orig_eax int32
++	Eip      int32
++	Xcs      int32
++	Eflags   int32
++	Esp      int32
++	Xss      int32
++}
++
++type Stat_t struct {
++	Dev        uint64
++	X__pad1    uint16
++	Pad0       [2]byte
++	Ino        uint32
++	Mode       uint32
++	Nlink      uint32
++	Uid        uint32
++	Gid        uint32
++	Rdev       uint64
++	X__pad2    uint16
++	Pad1       [2]byte
++	Size       int32
++	Blksize    int32
++	Blocks     int32
++	Atim       Timespec
++	Mtim       Timespec
++	Ctim       Timespec
++	X__unused4 uint32
++	X__unused5 uint32
++}
++
++type Rusage struct {
++	Utime    Timeval
++	Stime    Timeval
++	Maxrss   int32
++	Ixrss    int32
++	Idrss    int32
++	Isrss    int32
++	Minflt   int32
++	Majflt   int32
++	Nswap    int32
++	Inblock  int32
++	Oublock  int32
++	Msgsnd   int32
++	Msgrcv   int32
++	Nsignals int32
++	Nvcsw    int32
++	Nivcsw   int32
++}
+diff --git a/src/pkg/time/Makefile b/src/pkg/time/Makefile
+--- a/src/pkg/time/Makefile
++++ b/src/pkg/time/Makefile
+@@ -26,6 +26,9 @@
+ GOFILES_windows=\
+ 	zoneinfo_windows.go\
+ 
++GOFILES_tiny=\
++	zoneinfo_tiny.go\
++
+ GOFILES+=$(GOFILES_$(GOOS))
+ 
+ include ../../Make.pkg
+diff --git a/src/pkg/time/zoneinfo_tiny.go b/src/pkg/time/zoneinfo_tiny.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/time/zoneinfo_tiny.go
+@@ -0,0 +1,16 @@
++// Copyright 2010 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// For tiny, just return the same values as "file not found"
++// for Unix.
++
++package time
++
++func lookupTimezone(sec int64) (zone string, offset int) {
++	return "UTC", 0
++}
++
++func lookupByName(name string) (off int, found bool) {
++	return 0, false
++}

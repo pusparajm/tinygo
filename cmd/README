@@ -1,0 +1,10 @@
+These are examples of how to make a standalone bootable image. To
+use them:
+
+	cd hello
+	cp ../bochsrc .bochsrc
+	# maybe customize it...
+	GOOS=tiny gomake clean disk
+	bochs
+
+demo is currently broken.
