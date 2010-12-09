@@ -7,6 +7,14 @@ package main
 func main() {
 	println("hello world from tiny!")
 	println()
+
+	a := 3.14159
+	println("Floating point is initialized:")
+	println("pi: ", a)
+	println("2*pi: ", 2*a)
+	println()
+
+	println("Channels work:")
 	Sieve()
 }
 
