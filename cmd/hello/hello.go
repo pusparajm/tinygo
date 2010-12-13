@@ -10,13 +10,13 @@ import (
 	"./fs/_obj/fs"
 )
 
-type readable []byte
+type seekable []byte
 
-func NewReadable(buf []byte) readable {
+func NewSeekable(buf []byte) seekable {
 	return buf
 }
 
-func (r readable)ReadAt(p []byte, off int64) (n int, err os.Error) {
+func (r seekable)ReadAt(p []byte, off int64) (n int, err os.Error) {
 	o := int(off)
 	copy(p, r[o:o+len(p)])
 	return len(p), nil
@@ -37,7 +37,7 @@ func main() {
 
 	println("Read from fs:")
 	b := fs.FileMap["/tmp/test.zip"]
-	n, err := zip.NewReader(NewReadable(b), int64(len(b)))
+	n, err := zip.NewReader(NewSeekable(b), int64(len(b)))
 	if err != nil {
 		panic(err)
 	}
