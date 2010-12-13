@@ -4,7 +4,23 @@
 
 package main
 
-import "./fs/_obj/fs"
+import (
+	"os"
+	"archive/zip"
+	"./fs/_obj/fs"
+)
+
+type readable []byte
+
+func NewReadable(buf []byte) readable {
+	return buf
+}
+
+func (r readable)ReadAt(p []byte, off int64) (n int, err os.Error) {
+	o := int(off)
+	copy(p, r[o:o+len(p)])
+	return len(p), nil
+}
 
 func main() {
 	println("Hello world from tiny!")
@@ -19,22 +35,15 @@ func main() {
 	println("Channels work:")
 	Sieve()
 
-/*
 	println("Read from fs:")
-	f, err := fs.Open("test")
+	b := fs.FileMap["/tmp/test.zip"]
+	n, err := zip.NewReader(NewReadable(b), int64(len(b)))
 	if err != nil {
 		panic(err)
 	}
-	var buf [512]byte
-	n, err := f.Read(buf[:])
-	if err != nil {
-		panic(err)
+	for _, x := range n.File {
+		println("File:", x.Name)
 	}
-	print("Buffer is: ", buf[0:n])
-	f.Close()
-	println()
-*/
-	fs.Hi()
 }
 
 // Send the sequence 2, 3, 4, ... to channel 'ch'.
