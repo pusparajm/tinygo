@@ -7,7 +7,6 @@ include $(GOROOT)/src/Make.inc
 TARG=hello
 GOFILES=\
 	hello.go\
-	fs.go\
 
 include $(GOROOT)/src/Make.cmd
 include $(GOROOT)/src/Make.boot

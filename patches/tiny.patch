@@ -4,7 +4,7 @@ diff --git a/src/Make.boot b/src/Make.boot
 new file mode 100644
 --- /dev/null
 +++ b/src/Make.boot
-@@ -0,0 +1,20 @@
+@@ -0,0 +1,22 @@
 +# Copyright 2010 The Go Authors. All rights reserved.
 +# Use of this source code is governed by a BSD-style
 +# license that can be found in the LICENSE file.
@@ -25,6 +25,8 @@ new file mode 100644
 +
 +# do nothing on install
 +install:
++
++CLEANFILES+=$(TARG).asm disk
 diff --git a/src/Make.inc b/src/Make.inc
 --- a/src/Make.inc
 +++ b/src/Make.inc
@@ -372,17 +374,7 @@ new file mode 100644
 diff --git a/src/pkg/runtime/Makefile b/src/pkg/runtime/Makefile
 --- a/src/pkg/runtime/Makefile
 +++ b/src/pkg/runtime/Makefile
-@@ -30,6 +30,9 @@
- GOFILES_tiny=\
- 	tiny/io.go\
- 
-+#OFILES_tiny=\
-+#	vectors.$O\
-+
- OFILES_windows=\
- 	syscall.$O\
- 
-@@ -164,3 +167,9 @@
+@@ -164,3 +164,9 @@
  closure.$O: nacl/$(GOARCH)/closure.c
  	$(CC) $(CFLAGS) $<
  endif
@@ -445,6 +437,12 @@ diff --git a/src/pkg/runtime/tiny/386/rt0.s b/src/pkg/runtime/tiny/386/rt0.s
  	// Establish stack.
  	MOVL	$0x10000, AX
  	MOVL	AX, SP
+@@ -24,5 +36,3 @@
+ 
+ DATA runtime·kernel(SB)/7, $"kernel\z"
+ GLOBL runtime·kernel(SB), $7
+-	
+-
 diff --git a/src/pkg/runtime/tiny/386/signal.c b/src/pkg/runtime/tiny/386/signal.c
 --- a/src/pkg/runtime/tiny/386/signal.c
 +++ b/src/pkg/runtime/tiny/386/signal.c
