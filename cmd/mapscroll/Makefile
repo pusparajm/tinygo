@@ -4,10 +4,9 @@
 
 include $(GOROOT)/src/Make.inc
 
-TARG=hello
+TARG=mapscroll
 GOFILES=\
-	hello.go\
-	fs.go\
+	mapscroll.go\
 
 include $(GOROOT)/src/Make.cmd
 include $(GOROOT)/src/Make.boot

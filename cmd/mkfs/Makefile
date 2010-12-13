@@ -4,11 +4,13 @@
 
 include $(GOROOT)/src/Make.inc
 
-TARG=hello
+ifeq ($(GOOS),tiny)
+$(error Should only compile and use this tool on the host, not with GOOS=tiny)
+endif
+
+TARG=mkfs
 GOFILES=\
-	hello.go\
-	fs.go\
+	mkfs.go\
 
 include $(GOROOT)/src/Make.cmd
-include $(GOROOT)/src/Make.boot
 

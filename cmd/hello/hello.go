@@ -4,8 +4,12 @@
 
 package main
 
+import "tinygo.googlecode.com/hg/fs"
+
+func init() { initFS() }
+
 func main() {
-	println("hello world from tiny!")
+	println("Hello world from tiny!")
 	println()
 
 	a := 3.14159
@@ -16,6 +20,20 @@ func main() {
 
 	println("Channels work:")
 	Sieve()
+
+	println("Read from fs:")
+	f, err := fs.Open("test")
+	if err != nil {
+		panic(err)
+	}
+	var buf [512]byte
+	n, err := f.Read(buf[:])
+	if err != nil {
+		panic(err)
+	}
+	print("Buffer is: ", buf[0:n])
+	f.Close()
+	println()
 }
 
 // Send the sequence 2, 3, 4, ... to channel 'ch'.

@@ -17,6 +17,12 @@ func main () {
 	img := image.NewRGBA(640,480)
 	draw.Draw(img, image.Rect(10,10,100,100), image.White, image.ZP)
 
+	cr, cg, cb, ca := image.White.RGBA()
+	println("cr ", cr)
+	println("cg ", cg)
+	println("cb ", cb)
+	println("ca ", ca)
+
 	//ctxt.FlushImage()
 	print("done.")
 }

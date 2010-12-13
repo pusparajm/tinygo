@@ -4,11 +4,8 @@
 
 include $(GOROOT)/src/Make.inc
 
-TARG=hello
+TARG=tinygo.googlecode.com/hg/fs
 GOFILES=\
-	hello.go\
 	fs.go\
 
-include $(GOROOT)/src/Make.cmd
-include $(GOROOT)/src/Make.boot
-
+include $(GOROOT)/src/Make.pkg
