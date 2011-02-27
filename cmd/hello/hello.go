@@ -6,8 +6,6 @@ package main
 
 import (
 	"os"
-	"archive/zip"
-	"./fs/_obj/fs"
 )
 
 type seekable []byte
@@ -35,6 +33,7 @@ func main() {
 	println("Channels work:")
 	Sieve()
 
+	/*
 	println("Read from fs:")
 	b := fs.FileMap["/tmp/test.zip"]
 	n, err := zip.NewReader(NewSeekable(b), int64(len(b)))
@@ -44,6 +43,7 @@ func main() {
 	for _, x := range n.File {
 		println("File:", x.Name)
 	}
+	*/
 }
 
 // Send the sequence 2, 3, 4, ... to channel 'ch'.

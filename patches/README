@@ -1,12 +1,13 @@
-This patch is best used using Mercurial patch queues.
+This patch is best used with Mercurial patch queues.
 
 1. Enable the mq extension by editring ~/.hgrc and adding:
 
 [extension]
 mq=
 
-2. In your Go src directory:
+2. Apply the patch
 
+	cd $GOROOT
 	hg qinit
 	hg qimport /path/to/tiny.patch
 
@@ -16,4 +17,6 @@ mq=
 	GOOS=tiny gomake clean install
 
 You can now go to ../cmd and follow the README there.
-	
+
+To update the patch, use "hg qpop", then copy the new tiny.patch on
+top of $GOROOT/.hg/patches/tiny.patch, then "hg qpush".

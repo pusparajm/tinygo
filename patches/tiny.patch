@@ -1,4 +1,5 @@
-Make tiny more useful (floating point, interrupts, etc)
+# HG changeset patch
+# Parent 81072d93838b63859cceb3e89236b633b3d6cfbb
 
 diff --git a/src/Make.boot b/src/Make.boot
 new file mode 100644
@@ -13,7 +14,7 @@ new file mode 100644
 +# Only actually useful for GOOS=tiny, of course.
 +
 +$(TARG).asm: _go_.8
-+	8l -a _go_.8 > $(TARG).asm
++	$(LD) -d -a _go_.8 > $(TARG).asm
 +
 +disk: $(TARG) $(TARG).asm
 +	dd if=/dev/zero of=disk count=10000
@@ -27,14 +28,24 @@ new file mode 100644
 +install:
 +
 +CLEANFILES+=$(TARG).asm disk
+diff --git a/src/Make.cmd b/src/Make.cmd
+--- a/src/Make.cmd
++++ b/src/Make.cmd
+@@ -13,7 +13,7 @@
+ PREREQ+=$(patsubst %,%.make,$(DEPS))
+ 
+ $(TARG): _go_.$O
+-	$(LD) -o $@ _go_.$O
++	$(LD) -d -o $@ _go_.$O
+ 
+ _go_.$O: $(GOFILES) $(PREREQ)
+ 	$(GC) -o $@ $(GOFILES)
 diff --git a/src/Make.inc b/src/Make.inc
 --- a/src/Make.inc
 +++ b/src/Make.inc
-@@ -65,13 +65,11 @@
- else ifeq ($(GOARCH),amd64)
- O:=6
+@@ -66,9 +66,9 @@
  else ifeq ($(GOARCH),arm)
--
+ 
  O:=5
 -ifeq ($(GOOS),linux)
 +ifeq ($(GOOS),$(filter $(GOOS),linux tiny))
@@ -42,115 +53,133 @@ diff --git a/src/Make.inc b/src/Make.inc
 -$(error Invalid $$GOOS '$(GOOS)' for GOARCH=arm; must be linux)
 +$(error Invalid $$GOOS '$(GOOS)' for GOARCH=arm; must be linux or tiny)
  endif
--
+ 
  else
- $(error Invalid $$GOARCH '$(GOARCH)'; must be 386, amd64, or arm)
- endif
 diff --git a/src/pkg/Makefile b/src/pkg/Makefile
 --- a/src/pkg/Makefile
 +++ b/src/pkg/Makefile
-@@ -140,6 +140,53 @@
- 	../cmd/goyacc\
- 	../cmd/hgpatch\
+@@ -154,6 +154,51 @@
  
-+NODIRS_tiny=\
-+	archive/zip\
-+	crypto/tls\
-+	debug/macho\
-+	debug/elf\
-+	debug/proc\
-+	debug/pe \
-+	exec\
-+	exp/draw/x11\
-+	exp/eval\
-+	expvar\
-+	flag\
-+	go/doc\
-+	go/parser\
-+	go/printer\
-+	http\
-+	http/pprof\
-+	io/ioutil\
-+	mime\
-+	mime/multipart\
-+	net\
-+	net/dict\
-+	net/textproto\
-+	netchan\
-+	patch\
-+	path\
-+	rpc\
-+	rpc/jsonrpc\
-+	smtp\
-+	syslog\
-+	testing\
-+	testing/quick\
-+	tabwriter\
-+	template\
-+	websocket\
-+	../libcgo\
-+	../cmd/cgo\
-+	../cmd/ebnflint\
-+	../cmd/godoc\
-+	../cmd/gofmt\
-+	../cmd/goinstall\
-+	../cmd/goyacc\
-+	../cmd/hgpatch\
-+
-+FILTDIRS=\
-+	$(filter-out $(NODIRS_$(GOOS)),$(DIRS))
-+
- NOTEST=\
- 	debug/proc\
- 	exp/draw/x11\
-@@ -204,14 +251,14 @@
  endif
  
- TEST=\
--	$(filter-out $(NOTEST),$(DIRS))
-+	$(filter-out $(NOTEST),$(FILTDIRS))
- 
- BENCH=\
- 	$(filter-out $(NOBENCH),$(TEST))
- 
--clean.dirs: $(addsuffix .clean, $(DIRS))
--install.dirs: $(addsuffix .install, $(DIRS))
--nuke.dirs: $(addsuffix .nuke, $(DIRS))
-+clean.dirs: $(addsuffix .clean, $(FILTDIRS))
-+install.dirs: $(addsuffix .install, $(FILTDIRS))
-+nuke.dirs: $(addsuffix .nuke, $(FILTDIRS))
- test.dirs: $(addsuffix .test, $(TEST))
- bench.dirs: $(addsuffix .bench, $(BENCH))
- 
-@@ -241,6 +288,10 @@
- nuke: nuke.dirs
- 	rm -rf "$(GOROOT)"/pkg/*
- 
-+# used by deps.bash
-+dumpdirs:
-+	@echo $(FILTDIRS) 
++ifeq ($(GOOS),tiny)
++DIRS=\
++	archive/zip \
++	big \
++	bufio \
++	bytes \
++	cmath \
++	compress/flate\
++	compress/gzip\
++	compress/zlib\
++	container/heap\
++	container/list\
++	container/ring\
++	container/vector\
++	encoding/ascii85\
++	encoding/base32\
++	encoding/base64\
++	encoding/binary\
++	encoding/git85\
++	encoding/hex\
++	encoding/line\
++	encoding/pem\
++	fmt\
++	hash\
++	hash/adler32\
++	hash/crc32\
++	hash/crc64\
++	io \
++	math \
++	os \
++	rand \
++	reflect \
++	regexp \
++	runtime \
++	sort \
++	strconv \
++	strings \
++	sync \
++	syscall \
++	unicode \
++	utf16 \
++	utf8 \
 +
- deps:
- 	./deps.bash
++endif
++
+ NOTEST=\
+ 	crypto\
+ 	debug/proc\
+diff --git a/src/pkg/archive/zip/Makefile b/src/pkg/archive/zip/Makefile
+--- a/src/pkg/archive/zip/Makefile
++++ b/src/pkg/archive/zip/Makefile
+@@ -9,4 +9,9 @@
+ 	reader.go\
+ 	struct.go\
  
-diff --git a/src/pkg/deps.bash b/src/pkg/deps.bash
---- a/src/pkg/deps.bash
-+++ b/src/pkg/deps.bash
-@@ -14,7 +14,7 @@
- fi
++ifeq ($(GOOS),tiny)
++else
++GOFILES+=reader_file.go
++endif
++
+ include ../../../Make.pkg
+diff --git a/src/pkg/archive/zip/reader.go b/src/pkg/archive/zip/reader.go
+--- a/src/pkg/archive/zip/reader.go
++++ b/src/pkg/archive/zip/reader.go
+@@ -46,19 +46,6 @@
+ 	return f.Flags&0x8 != 0
+ }
  
- # Get list of directories from Makefile
--dirs=$(sed '1,/^DIRS=/d; /^$/,$d; s/\\//g' Makefile)
-+dirs=$(gomake --no-print-directory dumpdirs)
- dirpat=$(echo $dirs C | sed 's/ /|/g; s/.*/^(&)$/')
- 
- for dir in $dirs; do (
+-// OpenReader will open the Zip file specified by name and return a Reader.
+-func OpenReader(name string) (*Reader, os.Error) {
+-	f, err := os.Open(name, os.O_RDONLY, 0644)
+-	if err != nil {
+-		return nil, err
+-	}
+-	fi, err := f.Stat()
+-	if err != nil {
+-		return nil, err
+-	}
+-	return NewReader(f, fi.Size)
+-}
+-
+ // NewReader returns a new Reader reading from r, which is assumed to
+ // have the given size in bytes.
+ func NewReader(r io.ReaderAt, size int64) (*Reader, os.Error) {
+diff --git a/src/pkg/archive/zip/reader_file.go b/src/pkg/archive/zip/reader_file.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/archive/zip/reader_file.go
+@@ -0,0 +1,23 @@
++// Copyright 2010 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package zip
++
++import (
++	"os"
++)
++
++// OpenReader will open the Zip file specified by name and return a Reader.
++func OpenReader(name string) (*Reader, os.Error) {
++	f, err := os.Open(name, os.O_RDONLY, 0644)
++	if err != nil {
++		return nil, err
++	}
++	fi, err := f.Stat()
++	if err != nil {
++		return nil, err
++	}
++	return NewReader(f, fi.Size)
++}
++
 diff --git a/src/pkg/os/Makefile b/src/pkg/os/Makefile
 --- a/src/pkg/os/Makefile
 +++ b/src/pkg/os/Makefile
-@@ -43,6 +43,16 @@
- 	file_windows.go\
+@@ -42,6 +42,16 @@
  	sys_windows.go\
+ 	exec_windows.go\
  
 -GOFILES+=$(GOFILES_$(GOOS))
 +GOFILES_tiny=\
@@ -371,24 +400,57 @@ new file mode 100644
 +
 +	return int64(tv.Sec), int64(tv.Usec) * 1000, nil
 +}
+diff --git a/src/pkg/runtime/386/asm.s b/src/pkg/runtime/386/asm.s
+--- a/src/pkg/runtime/386/asm.s
++++ b/src/pkg/runtime/386/asm.s
+@@ -55,7 +55,7 @@
+ 	MOVL	CX, m_g0(AX)
+ 
+ 	// create istack out of the OS stack
+-	LEAL	(-64*1024+104)(SP), AX	// TODO: 104?
++	LEAL	(-16*1024+104)(SP), AX	// TODO: 104?
+ 	MOVL	AX, g_stackguard(CX)
+ 	MOVL	SP, g_stackbase(CX)
+ 	CALL	runtime·emptyfunc(SB)	// fault if stack check is wrong
 diff --git a/src/pkg/runtime/Makefile b/src/pkg/runtime/Makefile
 --- a/src/pkg/runtime/Makefile
 +++ b/src/pkg/runtime/Makefile
-@@ -164,3 +164,9 @@
- closure.$O: nacl/$(GOARCH)/closure.c
- 	$(CC) $(CFLAGS) $<
- endif
+@@ -32,6 +32,9 @@
+ 
+ CLEANFILES+=version.go version_*.go
+ 
++GOFILES_tiny=\
++	tiny/io.go
 +
-+#ifeq ($(GOOS),tiny)
-+#vectors.s: tiny/vectors.pl
-+#	tiny/vectors.pl > vectors.s
-+#endif
-+
+ OFILES_windows=\
+ 	syscall.$O\
+ 
+@@ -42,14 +45,6 @@
+ 
+ GOARM?=6
+ 
+-# arm-specific object files
+-OFILES_arm=\
+-	cas$(GOARM).$O\
+-	memset.$O\
+-	softfloat.$O\
+-	vlop.$O\
+-	vlrt.$O\
+-
+ OFILES=\
+ 	asm.$O\
+ 	cgocall.$O\
+diff --git a/src/pkg/runtime/tiny/386/defs.h b/src/pkg/runtime/tiny/386/defs.h
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/runtime/tiny/386/defs.h
+@@ -0,0 +1,1 @@
++// nothing to see here
 diff --git a/src/pkg/runtime/tiny/386/intrcommon.h b/src/pkg/runtime/tiny/386/intrcommon.h
 new file mode 100644
 --- /dev/null
 +++ b/src/pkg/runtime/tiny/386/intrcommon.h
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,23 @@
 +// this file gets #included over and over to workaround
 +// a problem in 8l when it processes JMPs between routines
 +
@@ -398,7 +460,7 @@ new file mode 100644
 +  PUSHL GS
 +  PUSHAL
 +  //MOVL  $(KDSEL),AX   - would have expanded to next line
-+	MOVL $((1<<3) | (0<<3) | 0), AX
++  MOVL $((1<<3) | (0<<3) | 0), AX
 +  MOVW  AX,DS
 +  MOVW  AX,ES
 +  LEAL  0(SP),AX
@@ -412,15 +474,19 @@ new file mode 100644
 +  POPL  DS
 +  ADDL  $8,SP /* error code and trap type */
 +  IRETL
-+
 diff --git a/src/pkg/runtime/tiny/386/rt0.s b/src/pkg/runtime/tiny/386/rt0.s
---- a/src/pkg/runtime/tiny/386/rt0.s
+new file mode 100644
+--- /dev/null
 +++ b/src/pkg/runtime/tiny/386/rt0.s
-@@ -5,7 +5,19 @@
- TEXT _rt0_386_tiny(SB), 7, $0
- 	// Disable interrupts.
- 	CLI
--	
+@@ -0,0 +1,39 @@
++// Copyright 2010 The Go Authors.  All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++TEXT _rt0_386_tiny(SB), 7, $0
++	// Disable interrupts.
++	CLI
++
 +
 +	// setup floating point
 +	// from 8a/l.s, the rt0 for Plan9
@@ -429,71 +495,74 @@ diff --git a/src/pkg/runtime/tiny/386/rt0.s b/src/pkg/runtime/tiny/386/rt0.s
 +	MOVL  AX,CR0
 +	FINIT
 +	WAIT
-+	PUSHW $0x0330	/* ignore underflow/precision, signal others */
++	PUSHW $0x0330 /* ignore underflow/precision, signal others */
 +	FLDCW 0(SP)
 +	POPW  AX
 +	WAIT
++	
++	// Establish stack.
++	MOVL	$0x10000, AX
++	MOVL	AX, SP
++	
++	// Set up memory hardware.
++	CALL	runtime·msetup(SB)
 +
- 	// Establish stack.
- 	MOVL	$0x10000, AX
- 	MOVL	AX, SP
-@@ -24,5 +36,3 @@
- 
- DATA runtime·kernel(SB)/7, $"kernel\z"
- GLOBL runtime·kernel(SB), $7
--	
--
++	// _rt0_386 expects to find argc, argv, envv on stack.
++	// Set up argv=["kernel"] and envv=[].
++	SUBL	$64, SP
++	MOVL	$1, 0(SP)
++	MOVL	$runtime·kernel(SB), 4(SP)
++	MOVL	$0, 8(SP)
++	MOVL	$0, 12(SP)
++	JMP	_rt0_386(SB)
++
++DATA runtime·kernel(SB)/7, $"kernel\z"
++GLOBL runtime·kernel(SB), $7
 diff --git a/src/pkg/runtime/tiny/386/signal.c b/src/pkg/runtime/tiny/386/signal.c
---- a/src/pkg/runtime/tiny/386/signal.c
+new file mode 100644
+--- /dev/null
 +++ b/src/pkg/runtime/tiny/386/signal.c
-@@ -3,17 +3,117 @@
- // license that can be found in the LICENSE file. 
- 
- #include "runtime.h"
--
--extern void runtime·write(int32 fd, void *v, int32 len, int32 cap);	// slice, spelled out
--
--int32
--runtime·write(int32 fd, void *v, int32 len)
--{
--	runtime·write(fd, v, len, len);
--	return len;
--}
-+#include "tiny/ureg.h"
-+#include "tiny/signals.h"
- 
- void
- runtime·gettime(int64*, int32*) 
- {
- }
+@@ -0,0 +1,85 @@
++// Copyright 2010 The Go Authors.  All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file. 
++
++#include "runtime.h"
++#include "tiny/386/ureg.h"
++#include "tiny/386/signals.h"
++
++void
++runtime·gettime(int64*, int32*) 
++{
++}
 +
 +String
 +runtime·signame(int32)
 +{
-+  return runtime·emptystring;
++	return runtime·emptystring;
 +}
 +
 +typedef struct Segdesc {
-+  uint32 d0;
-+  uint32 d1;
++	uint32 d0;
++	uint32 d1;
 +} Segdesc;
 +
 +Segdesc ilt[256];
 +
-+#define SELGDT	(0<<3)	/* selector is in gdt */
-+#define SEGP	(1<<15)		/* segment present */
-+#define SEGPL(x) ((x)<<13)	/* priority level */
++#define SELGDT (0<<3)  /* selector is in gdt */
++#define SEGP (1<<15)   /* segment present */
++#define SEGPL(x) ((x)<<13) /* priority level */
 +
-+#define	KESEG	2	/* kernel executable */	
-+#define SEGTG	(0x0F<<8)	/* task gate */
-+#define SELECTOR(i, t, p)	(((i)<<3) | (t) | (p))
-+#define KESEL	SELECTOR(KESEG, SELGDT, 0)
++#define  KESEG 2 /* kernel executable */
++#define SEGTG  (0x0F<<8) /* task gate */
++#define SELECTOR(i, t, p)  (((i)<<3) | (t) | (p))
++#define KESEL  SELECTOR(KESEG, SELGDT, 0)
 +
 +void
 +runtime·sethvec(uint32 v, void (*r)(void), uint32 type, uint32 pri)
 +{
-+  ilt[v].d0 = ((uint32)r)&0xFFFF|(KESEL<<16);
-+  ilt[v].d1 = ((uint32)r)&0xFFFF0000|SEGP|SEGPL(pri)|type;
++	ilt[v].d0 = ((uint32)r)&0xFFFF|(KESEL<<16);
++	ilt[v].d1 = ((uint32)r)&0xFFFF0000|SEGP|SEGPL(pri)|type;
 +}
 +
 +void runtime·putidt(Segdesc *p, uint16 len);
@@ -501,66 +570,31 @@ diff --git a/src/pkg/runtime/tiny/386/signal.c b/src/pkg/runtime/tiny/386/signal
 +void
 +runtime·trapinit(void)
 +{
-+  int32 i;
++	int32 i;
 +
-+  /* set all to bad, then fix the ones we want */
-+  for(i = 0; i < 256; i++)
-+    runtime·sethvec(i, intrbad, SEGTG, 0);
++	/* set all to bad, then fix the ones we want */
++	for(i = 0; i < 256; i++)
++		runtime·sethvec(i, intrbad, SEGTG, 0);
 +
-+//	sethvec(0, intr0, SEGTG, 0);
-+//	sethvec(1, intr1, SEGTG, 0);
-+//	sethvec(2, intr2, SEGTG, 0);
-+//	sethvec(3, intr3, SEGTG, 0);
-+//	sethvec(4, intr4, SEGTG, 0);
-+//	sethvec(5, intr5, SEGTG, 0);
 +	runtime·sethvec(6, intr6, SEGTG, 0);
-+//	sethvec(7, intr7, SEGTG, 0);
-+//	sethvec(8, intr8, SEGTG, 0);
-+//	sethvec(9, intr9, SEGTG, 0);
-+//	sethvec(10, intr10, SEGTG, 0);
-+//	sethvec(11, intr11, SEGTG, 0);
-+//	sethvec(12, intr12, SEGTG, 0);
-+//	sethvec(13, intr13, SEGTG, 0);
-+//	sethvec(14, intr14, SEGTG, 0);
-+//	sethvec(15, intr15, SEGTG, 0);
-+//	sethvec(16, intr16, SEGTG, 0);
-+//	sethvec(24, intr24, SEGTG, 0);
-+//	sethvec(25, intr25, SEGTG, 0);
-+//	sethvec(26, intr26, SEGTG, 0);
-+//	sethvec(27, intr27, SEGTG, 0);
-+//	sethvec(28, intr28, SEGTG, 0);
-+//	sethvec(29, intr29, SEGTG, 0);
-+//	sethvec(30, intr30, SEGTG, 0);
-+//	sethvec(31, intr31, SEGTG, 0);
-+//	sethvec(32, intr32, SEGTG, 0);
-+//	sethvec(33, intr33, SEGTG, 0);
-+//	sethvec(34, intr34, SEGTG, 0);
-+//	sethvec(35, intr35, SEGTG, 0);
-+//	sethvec(36, intr36, SEGTG, 0);
-+//	sethvec(37, intr37, SEGTG, 0);
-+//	sethvec(38, intr38, SEGTG, 0);
-+//	sethvec(39, intr39, SEGTG, 0);
-+//	sethvec(64, intr64, SEGTG, 0);
-+
-+  runtime·putidt(ilt, sizeof(ilt)-1);
 +}
 +
 +void
 +runtime·dumpregs(Ureg *r)
 +{
-+  runtime·printf("eax     %x\t", r->ax);
-+  runtime·printf("ebx     %x\n", r->bx);
-+  runtime·printf("ecx     %x\t", r->cx);
-+  runtime·printf("edx     %x\n", r->dx);
-+  runtime·printf("edi     %x\t", r->di);
-+  runtime·printf("esi     %x\n", r->si);
-+  runtime·printf("ebp     %x\t", r->bp);
-+  runtime·printf("esp     %x\n", r->nsp);
-+  runtime·printf("eip     %x\t", r->pc);
-+  runtime·printf("eflags  %x\n", r->flags);
-+  runtime·printf("cs      %x\t", r->cs);
-+  runtime·printf("fs      %x\n", r->fs);
-+  runtime·printf("gs      %x\n", r->gs);
++	runtime·printf("eax     %x\t", r->ax);
++	runtime·printf("ebx     %x\n", r->bx);
++	runtime·printf("ecx     %x\t", r->cx);
++	runtime·printf("edx     %x\n", r->dx);
++	runtime·printf("edi     %x\t", r->di);
++	runtime·printf("esi     %x\n", r->si);
++	runtime·printf("ebp     %x\t", r->bp);
++	runtime·printf("esp     %x\n", r->nsp);
++	runtime·printf("eip     %x\t", r->pc);
++	runtime·printf("eflags  %x\n", r->flags);
++	runtime·printf("cs      %x\t", r->cs);
++	runtime·printf("fs      %x\n", r->fs);
++	runtime·printf("gs      %x\n", r->gs);
 +}
 +
 +void runtime·arch_exit();
@@ -568,382 +602,578 @@ diff --git a/src/pkg/runtime/tiny/386/signal.c b/src/pkg/runtime/tiny/386/signal
 +void
 +runtime·trap(Ureg *ur)
 +{
-+  runtime·printf("Trap %x:\n", ur->trap);
++	runtime·printf("Trap %x:\n", ur->trap);
 +	runtime·dumpregs(ur);
 +
-+  runtime·arch_exit();
++	runtime·arch_exit();
 +}
++
+diff --git a/src/pkg/runtime/tiny/386/signals.h b/src/pkg/runtime/tiny/386/signals.h
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/runtime/tiny/386/signals.h
+@@ -0,0 +1,4 @@
++// prototypes for interrupt handlers
++
++void intr6(void);
++void intrbad(void);
 diff --git a/src/pkg/runtime/tiny/386/sys.s b/src/pkg/runtime/tiny/386/sys.s
---- a/src/pkg/runtime/tiny/386/sys.s
+new file mode 100644
+--- /dev/null
 +++ b/src/pkg/runtime/tiny/386/sys.s
-@@ -66,7 +66,7 @@
- 	MOVL	limit+8(FP), CX
- 
- 	// set up segment descriptor
--	LEAL	gdt+(3*8)(SB), AX	// gdt entry #3
+@@ -0,0 +1,114 @@
++// Copyright 2010 The Go Authors.  All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Manipulation of segment tables.
++//
++// Descriptor entry format for system call
++// is the native machine format, ugly as it is:
++//
++//	2-byte limit
++//	3-byte base
++//	1-byte: 0x80=present, 0x60=dpl<<5, 0x1F=type
++//	1-byte: 0x80=limit is *4k, 0x40=32-bit operand size,
++//		0x0F=4 more bits of limit
++//	1 byte: 8 more bits of base
++
++// Called to set up memory hardware.
++// Already running in 32-bit mode thanks to boot block,
++// but we need to install our new GDT that we can modify.
++TEXT runtime·msetup(SB), 7, $0
++	MOVL	runtime·gdtptr(SB), GDTR
++	MOVL	$(1*8+0), AX
++	MOVW	AX, DS
++	MOVW	AX, ES
++	MOVW	AX, SS
++	MOVW	$0, AX
++	MOVW	AX, FS
++	MOVW	AX, GS
++
++	// long jmp to cs:mret
++	BYTE	$0xEA
++	LONG $runtime·mret(SB)
++	WORD $(2*8+0)
++	
++TEXT runtime·mret(SB), 7, $0
++	RET
++
++// GDT memory
++TEXT runtime·gdt(SB), 7, $0
++	// null segment
++	LONG	$0
++	LONG	$0
++	
++	// 4GB data segment
++	LONG	$0xFFFF
++	LONG	$0x00CF9200
++
++	// 4GB code segment
++	LONG	$0xFFFF
++	LONG	$0x00CF9A00
++
++	// null segment (will be thread-local storage segment)
++	LONG	$0
++	LONG	$0
++
++// GDT pseudo-descriptor
++TEXT runtime·gdtptr(SB), 7, $0
++	WORD	$(4*8)
++	LONG	$runtime·gdt(SB)
++
++// Called to establish the per-thread segment.
++// Write to gdt[3] and reload the gdt register.
++// setldt(int entry, int address, int limit)
++TEXT runtime·setldt(SB),7,$32
++	MOVL	address+4(FP), BX	// aka base
++	MOVL	limit+8(FP), CX
++
++	// set up segment descriptor
 +	LEAL	runtime·gdt+(3*8)(SB), AX	// gdt entry #3
- 	MOVL	$0, 0(AX)
- 	MOVL	$0, 4(AX)
- 
-@@ -90,3 +90,154 @@
- 	MOVW	AX, GS
- 	RET
- 
++	MOVL	$0, 0(AX)
++	MOVL	$0, 4(AX)
++
++	MOVW	BX, 2(AX)
++	SHRL	$16, BX
++	MOVB	BX, 4(AX)
++	SHRL	$8, BX
++	MOVB	BX, 7(AX)
++
++	MOVW	CX, 0(AX)
++	SHRL	$16, CX
++	ANDL	$0x0F, CX
++	ORL	$0x40, CX		// 32-bit operand size
++	MOVB	CX, 6(AX)
++	MOVB	$0xF2, 5(AX)	// r/w data descriptor, dpl=3, present
++
++	MOVL	runtime·gdtptr(SB), GDTR
++
++	// Compute segment selector - (entry*8+0)
++	MOVL	$(3*8+0), AX
++	MOVW	AX, GS
++	RET
++
 +TEXT runtime·arch_exit(SB),7,$0
 +	CLI
 +	HLT
 +
 +GLOBL idtptr(SB),$6
-+TEXT  runtime·putidt(SB),7,$0   /* interrupt descriptor table */
-+  MOVL  t+0(FP),AX
-+  MOVL  AX,idtptr+2(SB)
-+  MOVL  l+4(FP),AX
-+  MOVW  AX,idtptr(SB)
-+  MOVL  idtptr(SB),IDTR
-+  RET
++TEXT	runtime·putidt(SB),7,$0		/* interrupt descriptor table */
++	MOVL	t+0(FP),AX
++	MOVL	AX,idtptr+2(SB)
++	MOVL	l+4(FP),AX
++	MOVW	AX,idtptr(SB)
++	MOVL	idtptr(SB),IDTR
++	RET
 +
-+/* from plan9's l.s */
-+TEXT	intr0(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$0
-+#include "intrcommon.h"
-+TEXT	intr1(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$1
-+#include "intrcommon.h"
-+TEXT	intr2(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$2
-+#include "intrcommon.h"
-+TEXT	intr3(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$3
-+#include "intrcommon.h"
-+TEXT	intr4(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$4
-+#include "intrcommon.h"
-+TEXT	intr5(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$5
-+#include "intrcommon.h"
-+TEXT	intr6(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$6
-+#include "intrcommon.h"
-+
-+TEXT	intr7(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$7
-+#include "intrcommon.h"
-+TEXT	intr8(SB),7,$0
-+	PUSHL	$8
-+#include "intrcommon.h"
-+TEXT	intr9(SB),$0
-+	PUSHL	$0
-+	PUSHL	$9
-+#include "intrcommon.h"
-+TEXT	intr10(SB),7,$0
-+	PUSHL	$10
-+#include "intrcommon.h"
-+TEXT	intr11(SB),7,$0
-+	PUSHL	$11
-+#include "intrcommon.h"
-+TEXT	intr12(SB),7,$0
-+	PUSHL	$12
-+#include "intrcommon.h"
-+TEXT	intr13(SB),7,$0
-+	PUSHL	$13
-+#include "intrcommon.h"
-+TEXT	intr14(SB),7,$0
-+	PUSHL	$14
-+#include "intrcommon.h"
-+TEXT	intr15(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$15
-+#include "intrcommon.h"
-+TEXT	intr16(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$16
-+#include "intrcommon.h"
-+TEXT	intr24(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$24
-+#include "intrcommon.h"
-+TEXT	intr25(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$25
-+#include "intrcommon.h"
-+TEXT	intr26(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$26
-+#include "intrcommon.h"
-+TEXT	intr27(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$27
-+#include "intrcommon.h"
-+TEXT	intr28(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$28
-+#include "intrcommon.h"
-+TEXT	intr29(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$29
-+#include "intrcommon.h"
-+TEXT	intr30(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$30
-+#include "intrcommon.h"
-+TEXT	intr31(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$31
-+#include "intrcommon.h"
-+TEXT	intr32(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$16
-+#include "intrcommon.h"
-+TEXT	intr33(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$33
-+#include "intrcommon.h"
-+TEXT	intr34(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$34
-+#include "intrcommon.h"
-+TEXT	intr35(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$35
-+#include "intrcommon.h"
-+TEXT	intr36(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$36
-+#include "intrcommon.h"
-+TEXT	intr37(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$37
-+#include "intrcommon.h"
-+TEXT	intr38(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$38
-+#include "intrcommon.h"
-+TEXT	intr39(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$39
-+#include "intrcommon.h"
-+TEXT	intr64(SB),7,$0
-+	PUSHL	$0
-+	PUSHL	$64
++TEXT intr6(SB),7,$0
++	PUSHL $0
++	PUSHL $6
 +#include "intrcommon.h"
 +
 +TEXT  intrbad(SB),7,$0
-+  PUSHL $0
-+  PUSHL $0x1ff
++	PUSHL $0
++	PUSHL $0x1ff
 +#include "intrcommon.h"
-+
-diff --git a/src/pkg/runtime/tiny/README b/src/pkg/runtime/tiny/README
---- a/src/pkg/runtime/tiny/README
-+++ b/src/pkg/runtime/tiny/README
-@@ -12,10 +12,9 @@
- and GOOS set to your normal GOOS (linux, darwin).  Then:
- 
- 	export GOOS=tiny
--	cd $GOROOT/src/pkg/runtime
--	make clean
--	make install
--	cd tiny
-+	cd $GOROOT/src/pkg
-+	make clean install
-+	cd $GOROOT/src/pkg/runtime/tiny
- 	8g $GOROOT/test/sieve.go
- 	8l sieve.8
- 	8l -a sieve.8 >sieve.asm	# can consult sieve.asm for debugging
-@@ -63,14 +62,13 @@
- you build your embedded code set GOARCH=tiny.
- 
- 	export GOOS=tiny
--	cd $GOROOT/src/pkg/runtime
--	make clean
--	make install
-+	cd $GOROOT/src/pkg
-+	make clean install
- 
--On arm the tiny runtime doesn't define a low level write function. You can either
--define a stub if you don't need debug output, or more usefully, define it to
--print to some debug serial port. Here is a sample function that prints to
--the DBGU on an at91sam7s:
-+On arm the tiny runtime doesn't define a low level write function.
-+You can either define a stub if you don't need debug output, or
-+more usefully, define it to print to some debug serial port. Here
-+is a sample function that prints to the DBGU on an at91sam7s:
- 
- #define DBGU_CSR  ((uint32*)   0xFFFFF214) // (DBGU) Channel Status Register
- #define US_TXRDY        ((uint32) 0x1 <<  1) // (DBGU) TXRDY Interrupt
-diff --git a/src/pkg/runtime/tiny/arm/rt0.s b/src/pkg/runtime/tiny/arm/rt0.s
---- a/src/pkg/runtime/tiny/arm/rt0.s
-+++ b/src/pkg/runtime/tiny/arm/rt0.s
-@@ -1,1 +1,22 @@
--// nothing to see here
-+// Copyright 2010 The Go Authors.  All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file.
-+
-+// outline copied from ../386/rt0.s, need an arm expert to fill
-+// in the details.
-+
-+TEXT _rt0_arm_tiny(SB), 7, $0
-+  // Disable interrupts.
-+
-+  // Establish stack.
-+
-+  // Set up memory hardware.
-+
-+  // _rt0_386 expects to find argc, argv, envv on stack.
-+  // Set up argv=["kernel"] and envv=[].
-+  //JMP _rt0_arm(SB)
-+	RET
-+
-+TEXT arch_exit(SB),0,$0
-+  SWI 0x11
-+	RET
-diff --git a/src/pkg/runtime/tiny/arm/signal.c b/src/pkg/runtime/tiny/arm/signal.c
---- a/src/pkg/runtime/tiny/arm/signal.c
-+++ b/src/pkg/runtime/tiny/arm/signal.c
-@@ -1,1 +1,19 @@
--// nothing to see here
-+// Copyright 2010 The Go Authors.  All rights reserved.
-+// Use of this source code is governed by a BSD-style
-+// license that can be found in the LICENSE file. 
-+
-+#include "runtime.h"
-+
-+extern void runtime·write(int32 fd, void *v, int32 len);
-+
-+int32
-+runtime·write(int32 fd, void *v, int32 len)
-+{
-+	runtime·write(fd, v, len);
-+	return len;
-+}
-+
-+void
-+runtime·gettime(int64*, int32*) 
-+{
-+}
-diff --git a/src/pkg/runtime/tiny/io.go b/src/pkg/runtime/tiny/io.go
---- a/src/pkg/runtime/tiny/io.go
-+++ b/src/pkg/runtime/tiny/io.go
-@@ -31,6 +31,10 @@
- 	switch c {
- 	case '\n':
- 		pos += 80 - pos%80
-+	case '\t':
-+		for i := 0; i < 8; i++ {
-+			putc(32)	// space
-+		}
- 	default:
- 		crt[pos] = uint16(c&0xff | color)
- 		pos++
-diff --git a/src/pkg/runtime/tiny/signals.h b/src/pkg/runtime/tiny/signals.h
---- a/src/pkg/runtime/tiny/signals.h
-+++ b/src/pkg/runtime/tiny/signals.h
-@@ -1,1 +1,37 @@
--// nothing to see here
-+/* prototypes for the interrupt handlers */
-+
-+void intr0(void);
-+void intr1(void);
-+void intr2(void);
-+void intr3(void);
-+void intr4(void);
-+void intr5(void);
-+void intr6(void);
-+void intr7(void);
-+void intr8(void);
-+void intr9(void);
-+void intr10(void);
-+void intr11(void);
-+void intr12(void);
-+void intr13(void);
-+void intr14(void);
-+void intr15(void);
-+void intr16(void);
-+void intr24(void);
-+void intr25(void);
-+void intr26(void);
-+void intr27(void);
-+void intr28(void);
-+void intr29(void);
-+void intr30(void);
-+void intr31(void);
-+void intr32(void);
-+void intr33(void);
-+void intr34(void);
-+void intr35(void);
-+void intr36(void);
-+void intr37(void);
-+void intr38(void);
-+void intr39(void);
-+void intr64(void);
-+void intrbad(void);
-diff --git a/src/pkg/runtime/tiny/thread.c b/src/pkg/runtime/tiny/thread.c
---- a/src/pkg/runtime/tiny/thread.c
-+++ b/src/pkg/runtime/tiny/thread.c
-@@ -14,17 +14,18 @@
- void
- runtime·osinit(void)
- {
-+	runtime·trapinit();
- }
- 
- void
--runtime·initsig(int32 queue)
-+runtime·initsig(int32)
- {
- }
- 
- void
--runtime·exit(int32)
-+runtime·exit(int32 code)
- {
--	for(;;);
-+	runtime·arch_exit(code);
- }
- 
- // single processor, no interrupts,
-diff --git a/src/pkg/runtime/tiny/ureg.h b/src/pkg/runtime/tiny/ureg.h
+diff --git a/src/pkg/runtime/tiny/386/ureg.h b/src/pkg/runtime/tiny/386/ureg.h
 new file mode 100644
 --- /dev/null
-+++ b/src/pkg/runtime/tiny/ureg.h
-@@ -0,0 +1,29 @@
-+typedef struct Ureg	Ureg;
++++ b/src/pkg/runtime/tiny/386/ureg.h
+@@ -0,0 +1,30 @@
++typedef struct Ureg  Ureg;
 +
 +#define ulong uint32
 +
 +struct Ureg
 +{
-+	ulong	di;		/* general registers */
-+	ulong	si;		/* ... */
-+	ulong	bp;		/* ... */
-+	ulong	nsp;
-+	ulong	bx;		/* ... */
-+	ulong	dx;		/* ... */
-+	ulong	cx;		/* ... */
-+	ulong	ax;		/* ... */
-+	ulong	gs;		/* data segments */
-+	ulong	fs;		/* ... */
-+	ulong	es;		/* ... */
-+	ulong	ds;		/* ... */
-+	ulong	trap;		/* trap type */
-+	ulong	ecode;		/* error code (or zero) */
-+	ulong	pc;		/* pc */
-+	ulong	cs;		/* old context */
-+	ulong	flags;		/* old flags */
-+	union {
-+		ulong	usp;
-+		ulong	sp;
-+	};
-+	ulong	ss;		/* old stack segment */
++ ulong di;   /* general registers */
++ ulong si;   /* ... */
++ ulong bp;   /* ... */
++ ulong nsp;
++ ulong bx;   /* ... */
++ ulong dx;   /* ... */
++ ulong cx;   /* ... */
++ ulong ax;   /* ... */
++ ulong gs;   /* data segments */
++ ulong fs;   /* ... */
++ ulong es;   /* ... */
++ ulong ds;   /* ... */
++ ulong trap;   /* trap type */
++ ulong ecode;    /* error code (or zero) */
++ ulong pc;   /* pc */
++ ulong cs;   /* old context */
++ ulong flags;    /* old flags */
++ union {
++   ulong usp;
++   ulong sp;
++ };
++ ulong ss;   /* old stack segment */
 +};
++
+diff --git a/src/pkg/runtime/tiny/README b/src/pkg/runtime/tiny/README
+new file mode 100755
+--- /dev/null
++++ b/src/pkg/runtime/tiny/README
+@@ -0,0 +1,100 @@
++This directory contains a simple example of how one might
++start Go running on bare hardware. There is currently code
++for 386 only.
++
++386
++---
++
++It is very primitive but can run go/test/sieve.go, the concurrent
++prime sieve, on a uniprocessor.
++
++To run, first build the tools by running all.bash with GOARCH=386
++and GOOS set to your normal GOOS (linux, darwin).  Then:
++
++	export GOOS=tiny
++	cd $GOROOT/src/pkg
++	make clean install
++	cd $GOROOT/src/pkg/runtime/tiny
++	8g $GOROOT/test/sieve.go
++	8l sieve.8
++	8l -a sieve.8 >sieve.asm	# can consult sieve.asm for debugging
++	dd if=/dev/zero of=disk count=10000
++	cat bootblock 8.out | dd of=disk conv=notrunc
++
++Use the built-in print(text string) function to print to the
++console.
++
++
++BOCHS
++-----
++
++You may have to tweak the .bochsrc depending on your system,
++and you may need to install the Bochs emulator.
++
++    $ cp dot-bochsrc .bochsrc
++    $ $EDITOR .bochsrc # tweak it if required
++    $ bochs
++
++ORACLE xVM VIRTUALBOX
++---------------------
++
++Install VirtualBox. Then:
++
++    Build 'disk' (described above under '386').
++
++    $ VBoxManage convertfromraw disk go-tiny.vdi
++    $ VirtualBox
++        create a new VM; as disk use the go-tiny.vdi image.
++        start the vm.
++
++
++QEMU / KVM
++----------
++
++This should work the same for qemu and kvm (really: qemu-kvm).
++
++    Build 'disk' (described above under '386').
++
++    $ qemu -hda disk
++
++
++ARM
++---
++
++Arm support does not exist anymore. It was removed from
++Go in this commit, which might help the enterprising hacker
++get it working again.
++
++	http://code.google.com/p/go/source/detail?r=820f713f76f6
++
++CREDITS
++-------
++
++The 386 bootblock is from MIT's xv6 project and carries this notice:
++
++    The xv6 software is:
++    
++    Copyright (c) 2006-2009 Frans Kaashoek, Robert Morris, Russ Cox,
++                            Massachusetts Institute of Technology
++    
++    Permission is hereby granted, free of charge, to any person obtaining
++    a copy of this software and associated documentation files (the
++    "Software"), to deal in the Software without restriction, including
++    without limitation the rights to use, copy, modify, merge, publish,
++    distribute, sublicense, and/or sell copies of the Software, and to
++    permit persons to whom the Software is furnished to do so, subject to
++    the following conditions:
++    
++    The above copyright notice and this permission notice shall be
++    included in all copies or substantial portions of the Software.
++    
++    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
++    EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
++    NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
++    LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
++    OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
++    WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
++
++http://pdos.csail.mit.edu/6.828/xv6/
++
+diff --git a/src/pkg/runtime/tiny/bootblock b/src/pkg/runtime/tiny/bootblock
+new file mode 100755
+index 0000000000000000000000000000000000000000..54dd7c632854abfe859d727b1da6d64de7b1ca4d
+GIT binary patch
+literal 512
+zc%1uXc%bh_-+{ghPf}JemHygr@mUI#b^locKciSh4Zp&HwB{3x{7MI28P;$xr0o!3
+zfaplu!NAb>pzp;Vh8hNj7jGFDfN~67X`P4C-ly$&(3ST7^}n<U3{dd@KaiMp9zst#
+z&mhi_0Ms>MLTKmHUEdiQ7~ZHJ07^9fa47u{dl)Df9^75a(H+b4;`aal|91ctFzosS
+zB;RfN+<D_&=Z%9eI5vF&(*m2mf@z876Aw0hd$&UYsC3i!cP|zL_3ioq)UvYyDDvlX
+zZgf1v;IQE4Hyque9NoSGo!6Obc{)$1{s$`Syry}~@_U(L=ZS+aIC~=)J7ZK>I!#nw
+z6adX>JjTETblhP^%kSmSn~!ir$03=;bKFIR1LQ>@&B7o6q*+uL7#JB|^n-NTf|&KL
+zK5nHM-Lf)3cH?1?2>*6g9Uyh^0c)>`gyrXA`|fIv#^*o{4BgHwoj?P-okf5YOQ(&>
+z3wNM!cd$sevw-EHGXBnsng@GrEOsz}eYL9ju!7~i@`DQ{fTpQ}^#8xme1r$=KnB7f
+GbQJ*pg3~?#
+
+diff --git a/src/pkg/runtime/tiny/dot-bochsrc b/src/pkg/runtime/tiny/dot-bochsrc
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/runtime/tiny/dot-bochsrc
+@@ -0,0 +1,18 @@
++romimage: file=$BXSHARE/BIOS-bochs-latest
++cpu: count=1, ips=100000000, reset_on_triple_fault=0
++megs: 32
++vgaromimage: file=/usr/share/vgabios/vgabios.bin
++vga: extension=none
++ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14
++ata1: enabled=1, ioaddr1=0x170, ioaddr2=0x370, irq=15
++ata2: enabled=0, ioaddr1=0x1e8, ioaddr2=0x3e0, irq=11
++ata3: enabled=0, ioaddr1=0x168, ioaddr2=0x360, irq=9
++ata0-master: type=disk, mode=flat, path="disk", cylinders=100, heads=10, spt=10
++boot: disk
++panic: action=ask
++error: action=report
++info: action=report
++debug: action=ignore
++debugger_log: -
++config_interface: wx
++display_library: wx
+diff --git a/src/pkg/runtime/tiny/io.go b/src/pkg/runtime/tiny/io.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/runtime/tiny/io.go
+@@ -0,0 +1,57 @@
++// Copyright 2010 The Go Authors.  All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Simple CGA screen output
++
++package runtime
++
++import "unsafe"
++
++var crt *[25 * 80]uint16
++var pos int
++
++func putc(c int) {
++	const (
++		port  = 0x3d4
++		color = 0x0700 // white on black
++	)
++
++	if crt == nil {
++		// init on demand in case printf is called before
++		// initialization runs.
++		var mem uintptr = 0xb8000
++		crt = (*[25 * 80]uint16)(unsafe.Pointer(mem))
++		pos = 0
++		for i := range crt[0:] {
++			crt[i] = 0
++		}
++	}
++
++	switch c {
++	case '\n':
++		pos += 80 - pos%80
++	case '\t':
++		for i := 0; i < 8; i++ {
++			putc(32)	//space
++		}
++	default:
++		crt[pos] = uint16(c&0xff | color)
++		pos++
++	}
++
++	if pos/80 >= 24 {
++		copy(crt[0:], crt[80:])
++		pos -= 80
++		for i := 0; i < 80; i++ {
++			crt[24*80+i] = 0
++		}
++	}
++	crt[pos] = ' ' | color
++}
++
++func write(fd int32, b []byte) {
++	for _, c := range b {
++		putc(int(c))
++	}
++}
+diff --git a/src/pkg/runtime/tiny/mem.c b/src/pkg/runtime/tiny/mem.c
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/runtime/tiny/mem.c
+@@ -0,0 +1,70 @@
++// Copyright 2010 The Go Authors.  All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++#include "runtime.h"
++#include "malloc.h"
++
++// Assume there's an arbitrary amount of memory starting at "end".
++// Sizing PC memory is beyond the scope of this demo.
++
++static byte *allocp;
++
++void init(void) {
++	extern byte end[];
++	if(allocp == nil) {
++		allocp = end;
++		allocp += 7 & -(uintptr)allocp;
++	}
++}
++
++void*
++runtime·SysReserve(void*, uintptr sz)
++{
++	init();
++	// skip forward to start of next page
++	allocp += (4096-1) & -(uintptr)allocp;
++	return runtime·SysAlloc(sz);
++}
++
++void
++runtime·SysMap(void *, uintptr)
++{
++	// already reserved by SysReserve
++	return;
++}
++
++void*
++runtime·SysAlloc(uintptr ask)
++{
++	byte *q;
++	
++	init();
++	ask += 7 & -ask;
++
++	q = allocp;
++	allocp += ask;
++	runtime·memclr(q, ask);
++	return q;
++}
++
++void
++runtime·SysFree(void *v, uintptr n)
++{
++	// Push pointer back if this is a free
++	// of the most recent SysAlloc.
++	n += 7 & -n;
++	if(allocp == (byte*)v+n)
++		allocp -= n;
++}
++
++void
++runtime·SysUnused(void *v, uintptr n)
++{
++	USED(v, n);
++}
++
++void
++runtime·SysMemInit(void)
++{
++}
+diff --git a/src/pkg/runtime/tiny/os.h b/src/pkg/runtime/tiny/os.h
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/runtime/tiny/os.h
+@@ -0,0 +1,1 @@
++// nothing to see here
+diff --git a/src/pkg/runtime/tiny/runtime_defs.go b/src/pkg/runtime/tiny/runtime_defs.go
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/runtime/tiny/runtime_defs.go
+@@ -0,0 +1,14 @@
++// Copyright 2010 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// OS-Specific Go definitions of internal structures. Master is runtime.h
++
++package runtime
++
++type lock struct {
++	key  uint32
++	sema uint32
++}
++
++type note lock
+diff --git a/src/pkg/runtime/tiny/thread.c b/src/pkg/runtime/tiny/thread.c
+new file mode 100644
+--- /dev/null
++++ b/src/pkg/runtime/tiny/thread.c
+@@ -0,0 +1,93 @@
++// Copyright 2010 The Go Authors.  All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++#include "runtime.h"
++
++int8 *goos = "tiny";
++
++void
++runtime·minit(void)
++{
++}
++
++void
++runtime·osinit(void)
++{
++	runtime·trapinit();
++}
++
++void
++runtime·goenvs(void)
++{
++	runtime·goenvs_unix();
++}
++
++void
++runtime·initsig(int32)
++{
++}
++
++void
++runtime·exit(int32 code)
++{
++	runtime·arch_exit(code);
++}
++
++// single processor, no interrupts,
++// so no need for real concurrency or atomicity
++
++void
++runtime·newosproc(M *m, G *g, void *stk, void (*fn)(void))
++{
++	USED(m, g, stk, fn);
++	runtime·throw("newosproc");
++}
++
++void
++runtime·lock(Lock *l)
++{
++	if(m->locks < 0)
++		runtime·throw("lock count");
++	m->locks++;
++	if(l->key != 0)
++		runtime·throw("deadlock");
++	l->key = 1;
++}
++
++void
++runtime·unlock(Lock *l)
++{
++	m->locks--;
++	if(m->locks < 0)
++		runtime·throw("lock count");
++	if(l->key != 1)
++		runtime·throw("unlock of unlocked lock");
++	l->key = 0;
++}
++
++void 
++runtime·destroylock(Lock *)
++{
++	// nothing
++}
++
++void
++runtime·noteclear(Note *n)
++{
++	n->lock.key = 0;
++}
++
++void
++runtime·notewakeup(Note *n)
++{
++	n->lock.key = 1;
++}
++
++void
++runtime·notesleep(Note *n)
++{
++	if(n->lock.key != 1)
++		runtime·throw("notesleep");
++}
++
 diff --git a/src/pkg/syscall/asm_tiny_386.s b/src/pkg/syscall/asm_tiny_386.s
 new file mode 100644
 --- /dev/null
@@ -1243,7 +1473,7 @@ new file mode 100644
 diff --git a/src/pkg/time/Makefile b/src/pkg/time/Makefile
 --- a/src/pkg/time/Makefile
 +++ b/src/pkg/time/Makefile
-@@ -26,6 +26,9 @@
+@@ -23,6 +23,9 @@
  GOFILES_windows=\
  	zoneinfo_windows.go\
  

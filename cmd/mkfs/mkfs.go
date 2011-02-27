@@ -2,12 +2,9 @@ package main
 
 import (
 	"fmt"
-	"flag"
 	"log"
 	"io"
 	"os"
-	"unicode"
-	"strings"
 )
 
 func doFile(w io.Writer, fn string) {
@@ -16,7 +13,7 @@ func doFile(w io.Writer, fn string) {
 		log.Print("Could not read ", fn, ": ", err)
 		return
 	}
-	fmt.Fprintf(w, "const unsigned char data_%s[] = {", toC(fn))
+	fmt.Fprintf(w, "var fsString string = \"")
 	for {
 		var buf [512]byte
 		n, err := f.Read(buf[:])
@@ -27,56 +24,78 @@ func doFile(w io.Writer, fn string) {
 			break
 		}
 		for i := 0; i < n; i++ {
-			fmt.Fprintf(w, "0x%x,", buf[i])
+			if isPrintable(buf[i]) {
+				fmt.Fprintf(w, "%c", buf[i])
+			} else {
+				fmt.Fprintf(w, "0x%x", buf[i])
+			}
 		}
 	}
-	fmt.Fprintf(w, "};\n")
+	fmt.Fprintf(w, "\"\n")
 }
 
-func toC(s string) string {
-	return strings.Map(
-		func (ch int) int {
-			if (unicode.IsDigit(ch) || unicode.IsLetter(ch)) {
-				return ch
-			}
-			return '_'
-		}, s)
+func isPrintable(x byte) bool {
+	if x >= 'a' && x <= 'z' {
+		return true
+	}
+	if x >= 'A' && x <= 'Z' {
+		return true
+	}
+	if x >= '0' && x <= '9' {
+		return true
+	}
+	return false
 }
 
 func main() {
+	if len(os.Args) > 2 {
+		fmt.Fprintf(os.Stderr, "Should have only one argument.\n")
+		os.Exit(1)
+	}
+
 	out := os.Stdout
 	fmt.Fprintf(out, "// Generated file: do not edit. Use mkfs instead.\n")
-	fmt.Fprintf(out, "package fs\n")
-	fmt.Fprintf(out, "/*\n")
-	for i := 0; i < flag.NArg(); i++ {
-		doFile(out, flag.Arg(i))
-	}
-	fmt.Fprintf(out, "*/\n")
-	fmt.Fprintf(out, "import \"C\"\n")
+	fmt.Fprintf(out, "package main\n")
 	fmt.Fprintf(out, `
 import (
-	"reflect"
-	"unsafe"
+//	"reflect"
+//	"unsafe"
+	"archive/zip"
+	"os"
 )
-var FileMap map[string][]byte
-
-func fix(in []C.uchar) []byte {
-	inx := (*reflect.SliceHeader)(unsafe.Pointer(&in))
-	var buf [1]byte
-	s := buf[:]
-	sx := (*reflect.SliceHeader)(unsafe.Pointer(&s))
-	sx.Data = inx.Data
-	sx.Len = inx.Len
-	sx.Cap = inx.Cap
-	return s
-}
 `)
 
-	fmt.Fprintf(out, "func init() {\n")
-	fmt.Fprintf(out, "	FileMap = make(map[string][]byte)\n")
-	for i := 0; i < flag.NArg(); i++ {
-		file := flag.Arg(i)
-		fmt.Fprintf(out, "	FileMap[\"%s\"] = fix(C.data_%s[:])\n", file, toC(file))
+	doFile(out, os.Args[1])
+
+	fmt.Fprintf(out, `
+var fs *zip.Reader
+
+//type sliceReaderAt []byte
+//
+//func (r sliceReaderAt) ReadAt(b []byte, off int64) (int, os.Error) {
+//  copy(b, r[int(off):int(off)+len(b)])
+//  return len(b), nil
+//}
+
+type stringReaderAt string
+func (r stringReaderAt) ReadAt(b []byte, off int64) (int, os.Error) {
+	copy(b, r[int(off):int(off)+len(b)])
+	return len(b), nil
+}
+
+func init() {
+//	sx := (*reflect.StringHeader)(unsafe.Pointer(&fsString))
+//	var x [0]byte
+//	b := x[:]
+//	bx := (*reflect.SliceHeader)(unsafe.Pointer(&b))
+//	bx.Data = sx.Data
+//	bx.Len = len(fsString)
+//	bx.Cap = len(fsString)
+	var err os.Error
+	fs, err = zip.NewReader(stringReaderAt(fsString), int64(len(fsString)))
+	if err != nil {
+		panic("could not read a zipfile from the filesystem string")
 	}
-	fmt.Fprintf(out, "}\n")
+}
+`)
 }
